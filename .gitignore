@@ -1,0 +1,12 @@
+# Machine Learning artifacts
+data/
+checkpoints/
+results/
+figures/
+
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+.DS_Store

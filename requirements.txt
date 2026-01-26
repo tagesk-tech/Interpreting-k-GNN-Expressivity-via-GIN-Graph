@@ -1,0 +1,19 @@
+# k-GNN Interpretation Project Requirements
+# Install with: pip install -r requirements.txt
+
+# Core ML
+torch>=1.12.0
+numpy>=1.21.0
+
+# PyTorch Geometric (follow official install instructions for your CUDA version)
+# https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html
+torch-geometric>=2.0.0
+torch-scatter
+torch-sparse
+
+# Visualization
+matplotlib>=3.5.0
+networkx>=2.6.0
+
+# Utilities
+tqdm>=4.62.0
