@@ -34,7 +34,7 @@ from visualize import (
     plot_atom_legend
 )
 from metrics import ExplanationEvaluator
-from config import ExperimentConfig, CLASS_NAMES, DataConfig
+from config import ExperimentConfig, DataConfig, get_class_name
 
 
 def setup_experiment(args):
@@ -103,8 +103,7 @@ def run_gin_graph_training(config, models_to_train, dataset, device, class_stats
     target_class = config.target_class
     target_dataset = [d for d in dataset if d.y.item() == target_class]
 
-    # Use CLASS_NAMES for MUTAG, otherwise just show class number
-    class_label = CLASS_NAMES.get(target_class, f"Class {target_class}") if dataset_name == 'mutag' else f"Class {target_class}"
+    class_label = get_class_name(target_class, dataset_name)
     print(f"\nTarget class: {target_class} ({class_label})")
     print(f"Training samples: {len(target_dataset)}")
 
@@ -126,7 +125,8 @@ def run_gin_graph_training(config, models_to_train, dataset, device, class_stats
             config=config.gin_graph,
             data_config=config.data,
             device=device,
-            class_stats=class_stats
+            class_stats=class_stats,
+            dataset_name=dataset_name
         )
         
         # Train
@@ -166,18 +166,20 @@ def run_gin_graph_training(config, models_to_train, dataset, device, class_stats
     return results
 
 
-def generate_figures(config, gin_results, models_to_train):
+def generate_figures(config, gin_results, models_to_train, dataset_name='mutag'):
     """Generate all figures for the experiment."""
     print("\n" + "=" * 70)
     print("PHASE 3: Generating Figures")
     print("=" * 70)
-    
-    # Atom type legend
-    plot_atom_legend(os.path.join(config.figures_dir, 'atom_legend.png'))
-    
+
+    from visualize import plot_legend
+
+    # Node type legend
+    plot_legend(dataset_name, os.path.join(config.figures_dir, f'{dataset_name}_legend.png'))
+
     for model_name in models_to_train:
         data = gin_results[model_name]
-        
+
         # Best explanations grid
         best_idx = data['best_indices'][:10]
         plot_explanation_grid(
@@ -186,7 +188,8 @@ def generate_figures(config, gin_results, models_to_train):
             [data['metrics'][i] for i in best_idx],
             num_cols=5,
             save_path=os.path.join(config.figures_dir, f'explanations_{model_name}.png'),
-            title=f'Best Explanations for {model_name.upper()}'
+            title=f'Best Explanations for {model_name.upper()}',
+            dataset=dataset_name
         )
         
         # Training history
@@ -213,7 +216,8 @@ def generate_figures(config, gin_results, models_to_train):
         }
         create_comparison_figure(
             comparison_data,
-            save_path=os.path.join(config.figures_dir, 'model_comparison.png')
+            save_path=os.path.join(config.figures_dir, 'model_comparison.png'),
+            dataset=dataset_name
         )
     
     print(f"\nFigures saved to: {config.figures_dir}")
@@ -225,8 +229,7 @@ def generate_report(config, kgnn_results, gin_results, models_to_train, dataset_
     print("EXPERIMENT RESULTS SUMMARY")
     print("=" * 70)
 
-    # Use CLASS_NAMES for MUTAG, otherwise just show class number
-    class_label = CLASS_NAMES.get(config.target_class, f"Class {config.target_class}") if dataset_name == 'mutag' else f"Class {config.target_class}"
+    class_label = get_class_name(config.target_class, dataset_name)
 
     report = {
         'timestamp': datetime.now().isoformat(),
@@ -318,7 +321,7 @@ def main():
     # Training settings
     parser.add_argument('--kgnn_epochs', type=int, default=100,
                         help='Epochs for k-GNN training')
-    parser.add_argument('--gin_epochs', type=int, default=300,
+    parser.add_argument('--gin_epochs', type=int, default=100,
                         help='Epochs for GIN-Graph training')
     parser.add_argument('--hidden_dim', type=int, default=64,
                         help='Hidden dimension')
@@ -352,8 +355,7 @@ def main():
     
     dataset_name = args.dataset.lower()
 
-    # Use CLASS_NAMES for MUTAG, otherwise just show class number
-    class_label = CLASS_NAMES.get(args.target_class, f"Class {args.target_class}") if dataset_name == 'mutag' else f"Class {args.target_class}"
+    class_label = get_class_name(args.target_class, dataset_name)
 
     print("=" * 70)
     print("k-GNN Interpretation Experiment")
@@ -416,7 +418,7 @@ def main():
     
     # Phase 3: Generate figures
     if gin_results:
-        generate_figures(config, gin_results, args.models)
+        generate_figures(config, gin_results, args.models, dataset_name)
     
     # Phase 4: Generate report
     if gin_results:

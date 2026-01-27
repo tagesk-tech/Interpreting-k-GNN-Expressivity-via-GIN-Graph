@@ -27,7 +27,7 @@ from gin_generator import GINGenerator, GINDiscriminator
 from model_wrapper import DenseToSparseWrapper, SimpleDenseGNN
 from dynamic_weighting import DynamicWeighting
 from metrics import ExplanationEvaluator, ExplanationMetrics
-from config import ExperimentConfig, GINGraphConfig, CLASS_NAMES, DataConfig
+from config import ExperimentConfig, GINGraphConfig, DataConfig, get_class_name
 
 
 class GINGraphTrainer:
@@ -48,14 +48,21 @@ class GINGraphTrainer:
         config: GINGraphConfig,
         data_config: DataConfig,
         device: torch.device,
-        class_stats: Dict
+        class_stats: Dict,
+        dataset_name: str = 'mutag'
     ):
         self.device = device
         self.config = config
         self.target_class = target_class
         self.model_type = model_type
-        self.max_nodes = data_config.max_nodes
+        self.max_nodes = data_config.gin_max_nodes  # Use smaller size for generation
         self.num_node_feats = data_config.num_node_features
+        self.dataset_name = dataset_name.lower()
+
+        # Log if using reduced size
+        if data_config.gin_max_nodes < data_config.max_nodes:
+            print(f"  Using reduced generation size: {data_config.gin_max_nodes} nodes "
+                  f"(dataset max: {data_config.max_nodes})")
         
         # Wrap the pretrained GNN for dense inputs
         self.pretrained_gnn = DenseToSparseWrapper(pretrained_gnn, model_type).to(device)
@@ -111,30 +118,43 @@ class GINGraphTrainer:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Prepare a batch of real graphs in dense format.
-        
+
         Args:
             batch_list: List of PyG Data objects
-            max_nodes: Maximum nodes for padding
-            
+            max_nodes: Maximum nodes for padding/truncation
+
         Returns:
             x: [batch, N, D]
             adj: [batch, N, N]
         """
         real_x_list = []
         real_adj_list = []
-        
+
         for data in batch_list:
             num_nodes = data.num_nodes
             x = data.x.float()
-            
-            # Pad node features
-            x_padded = F.pad(x, (0, 0, 0, max_nodes - num_nodes))
+
+            if num_nodes > max_nodes:
+                # Truncate large graphs to max_nodes
+                x = x[:max_nodes]
+                # Filter edges to only include nodes < max_nodes
+                edge_index = data.edge_index
+                mask = (edge_index[0] < max_nodes) & (edge_index[1] < max_nodes)
+                edge_index = edge_index[:, mask]
+                adj = to_dense_adj(edge_index, max_num_nodes=max_nodes)[0]
+                x_padded = x  # Already at max_nodes
+            elif num_nodes < max_nodes:
+                # Pad small graphs
+                x_padded = F.pad(x, (0, 0, 0, max_nodes - num_nodes))
+                adj = to_dense_adj(data.edge_index, max_num_nodes=max_nodes)[0]
+            else:
+                # Exact size
+                x_padded = x
+                adj = to_dense_adj(data.edge_index, max_num_nodes=max_nodes)[0]
+
             real_x_list.append(x_padded)
-            
-            # Dense adjacency with padding
-            adj = to_dense_adj(data.edge_index, max_num_nodes=max_nodes)[0]
             real_adj_list.append(adj)
-        
+
         real_x = torch.stack(real_x_list).to(self.device)
         real_adj = torch.stack(real_adj_list).to(self.device)
         
@@ -246,7 +266,7 @@ class GINGraphTrainer:
         
         if verbose:
             print(f"Starting GIN-Graph training")
-            print(f"  Target class: {self.target_class} ({CLASS_NAMES.get(self.target_class, 'Unknown')})")
+            print(f"  Target class: {self.target_class} ({get_class_name(self.target_class, self.dataset_name)})")
             print(f"  Dataset size: {len(dataset)}")
             print(f"  Epochs: {epochs}")
             print(f"  Total iterations: {total_iters}")
@@ -490,7 +510,8 @@ def main():
         config=gin_config,
         data_config=data_config,
         device=device,
-        class_stats=class_stats
+        class_stats=class_stats,
+        dataset_name=dataset_name
     )
     
     # Train

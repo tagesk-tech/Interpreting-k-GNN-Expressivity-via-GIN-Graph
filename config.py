@@ -16,16 +16,19 @@ DATASET_CONFIGS = {
         'max_nodes': 28,
         'num_node_features': 7,  # Atom types: C, N, O, F, I, Cl, Br
         'num_classes': 2,
+        'gin_max_nodes': 28,  # Same as max_nodes for small graphs
     },
     'dd': {
         'max_nodes': 500,
         'num_node_features': 89,  # DD has 89 node features
         'num_classes': 2,
+        'gin_max_nodes': 80,  # Smaller for GIN generation (memory efficiency)
     },
     'proteins': {
         'max_nodes': 620,
         'num_node_features': 3,  # PROTEINS has 3 node features
         'num_classes': 2,
+        'gin_max_nodes': 50,  # Smaller for GIN generation (median graph ~26 nodes)
     },
 }
 
@@ -40,6 +43,7 @@ class DataConfig:
     seed: int = 42
     max_nodes: int = 28
     num_node_features: int = 7
+    gin_max_nodes: int = 28  # Max nodes for GIN generation (can be smaller than max_nodes)
 
     @classmethod
     def from_dataset(cls, dataset_name: str, **kwargs) -> 'DataConfig':
@@ -65,6 +69,7 @@ class DataConfig:
             name=dataset_name.upper(),
             max_nodes=kwargs.get('max_nodes', config['max_nodes']),
             num_node_features=kwargs.get('num_node_features', config['num_node_features']),
+            gin_max_nodes=kwargs.get('gin_max_nodes', config['gin_max_nodes']),
             root=kwargs.get('root', './data'),
             train_ratio=kwargs.get('train_ratio', 0.8),
             batch_size=kwargs.get('batch_size', 32),
@@ -136,7 +141,8 @@ class ExperimentConfig:
         return torch.device(self.device)
 
 
-# Atom type mapping for visualization
+# Backward compatibility: MUTAG-specific constants
+# For new code, use gin_handlers.get_handler(dataset).node_labels etc.
 ATOM_LABELS = {
     0: 'C',   # Carbon
     1: 'N',   # Nitrogen
@@ -158,7 +164,38 @@ ATOM_COLORS = {
     '?': '#808080'     # Gray (unknown)
 }
 
+# Default class names (MUTAG)
 CLASS_NAMES = {
     0: 'Mutagen',
     1: 'Non-Mutagen'
 }
+
+
+def get_class_names(dataset_name: str = 'mutag') -> dict:
+    """
+    Get class names for a dataset using the handler system.
+
+    Args:
+        dataset_name: Name of the dataset
+
+    Returns:
+        Dictionary mapping class index to name
+    """
+    from gin_handlers import get_handler
+    handler = get_handler(dataset_name)
+    return handler.class_names
+
+
+def get_class_name(class_idx: int, dataset_name: str = 'mutag') -> str:
+    """
+    Get class name for a specific class index.
+
+    Args:
+        class_idx: Class index
+        dataset_name: Name of the dataset
+
+    Returns:
+        Class name string
+    """
+    names = get_class_names(dataset_name)
+    return names.get(class_idx, f'Class {class_idx}')
