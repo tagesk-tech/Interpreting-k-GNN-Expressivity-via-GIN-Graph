@@ -111,35 +111,79 @@ def build_2set_edges(
     """
     Build edges between 2-sets based on local neighborhood definition.
     {u, v} ~ {v, w} if (u, w) ∈ E
+
+    Vectorized implementation using canonical index encoding.
+    Generates bidirectional edges for message passing.
     """
     num_pairs = pairs.size(0)
     if num_pairs == 0:
         return torch.empty((2, 0), dtype=torch.long, device=device)
-    
-    pair_to_idx = {}
-    for idx, (u, v) in enumerate(pairs.tolist()):
-        pair_to_idx[tuple(sorted((u, v)))] = idx
-    
-    src_list, dst_list = [], []
-    
-    for i, (u, v) in enumerate(pairs.tolist()):
-        for w in (adj[v] == 1).nonzero(as_tuple=True)[0].tolist():
-            if w != u and adj[u, w] == 1:
-                target = tuple(sorted((v, w)))
-                if target in pair_to_idx:
-                    src_list.append(i)
-                    dst_list.append(pair_to_idx[target])
-        
-        for w in (adj[u] == 1).nonzero(as_tuple=True)[0].tolist():
-            if w != v and adj[v, w] == 1:
-                target = tuple(sorted((u, w)))
-                if target in pair_to_idx:
-                    src_list.append(i)
-                    dst_list.append(pair_to_idx[target])
-    
-    if src_list:
-        return torch.tensor([src_list, dst_list], dtype=torch.long, device=device)
-    return torch.empty((2, 0), dtype=torch.long, device=device)
+
+    n = adj.size(0)
+    u = pairs[:, 0]  # [num_pairs]
+    v = pairs[:, 1]  # [num_pairs]
+
+    # Create lookup table: canonical_idx -> pair_index
+    # For pair {a, b} with a < b: canonical_idx = a * n + b
+    # pairs are already sorted (from torch.combinations), so pairs[:,0] < pairs[:,1]
+    canonical_idx = u * n + v
+    lookup = torch.full((n * n,), -1, dtype=torch.long, device=device)
+    lookup[canonical_idx] = torch.arange(num_pairs, device=device)
+
+    # For each pair (u, v), find all w where:
+    # - w is neighbor of v (adj[v, w] == 1)
+    # - w is neighbor of u (adj[u, w] == 1)
+    # - w != u and w != v
+    # This generates edges to both {v, w} and {u, w}
+
+    # Get adjacency rows for all u and v
+    adj_u = adj[u]  # [num_pairs, n]
+    adj_v = adj[v]  # [num_pairs, n]
+
+    # Valid w candidates: neighbor of both u and v
+    valid_w_mask = (adj_u == 1) & (adj_v == 1)  # [num_pairs, n]
+
+    # Exclude w == u and w == v
+    pair_range = torch.arange(num_pairs, device=device)
+    valid_w_mask[pair_range, u] = False
+    valid_w_mask[pair_range, v] = False
+
+    # Find all valid (pair_idx, w) combinations
+    pair_indices, w_candidates = valid_w_mask.nonzero(as_tuple=True)
+
+    if pair_indices.numel() == 0:
+        return torch.empty((2, 0), dtype=torch.long, device=device)
+
+    all_src = []
+    all_dst = []
+
+    # Case 1: Edge from {u, v} to {v, w} (keep v, replace u with w)
+    v_vals = v[pair_indices]
+    w_vals = w_candidates
+    target_min = torch.minimum(v_vals, w_vals)
+    target_max = torch.maximum(v_vals, w_vals)
+    target_canonical = target_min * n + target_max
+    target_pair_idx = lookup[target_canonical]
+    valid_mask = target_pair_idx >= 0
+    if valid_mask.any():
+        all_src.append(pair_indices[valid_mask])
+        all_dst.append(target_pair_idx[valid_mask])
+
+    # Case 2: Edge from {u, v} to {u, w} (keep u, replace v with w)
+    u_vals = u[pair_indices]
+    target_min = torch.minimum(u_vals, w_vals)
+    target_max = torch.maximum(u_vals, w_vals)
+    target_canonical = target_min * n + target_max
+    target_pair_idx = lookup[target_canonical]
+    valid_mask = target_pair_idx >= 0
+    if valid_mask.any():
+        all_src.append(pair_indices[valid_mask])
+        all_dst.append(target_pair_idx[valid_mask])
+
+    if not all_src:
+        return torch.empty((2, 0), dtype=torch.long, device=device)
+
+    return torch.stack([torch.cat(all_src), torch.cat(all_dst)])
 
 
 def build_3set_edges(
@@ -150,42 +194,98 @@ def build_3set_edges(
     """
     Build edges between 3-sets based on local neighborhood definition.
     {a, b, c} ~ {a, b, d} if (c, d) ∈ E
+
+    Vectorized implementation using canonical index encoding.
     """
     num_triplets = triplets.size(0)
     if num_triplets == 0:
         return torch.empty((2, 0), dtype=torch.long, device=device)
-    
-    triplet_to_idx = {}
-    for idx, (a, b, c) in enumerate(triplets.tolist()):
-        triplet_to_idx[tuple(sorted((a, b, c)))] = idx
-    
-    src_list, dst_list = [], []
-    
-    for i, (a, b, c) in enumerate(triplets.tolist()):
-        for d in (adj[c] == 1).nonzero(as_tuple=True)[0].tolist():
-            if d not in [a, b, c]:
-                target = tuple(sorted((a, b, d)))
-                if target in triplet_to_idx:
-                    src_list.append(i)
-                    dst_list.append(triplet_to_idx[target])
-        
-        for d in (adj[b] == 1).nonzero(as_tuple=True)[0].tolist():
-            if d not in [a, b, c]:
-                target = tuple(sorted((a, c, d)))
-                if target in triplet_to_idx:
-                    src_list.append(i)
-                    dst_list.append(triplet_to_idx[target])
-        
-        for d in (adj[a] == 1).nonzero(as_tuple=True)[0].tolist():
-            if d not in [a, b, c]:
-                target = tuple(sorted((b, c, d)))
-                if target in triplet_to_idx:
-                    src_list.append(i)
-                    dst_list.append(triplet_to_idx[target])
-    
-    if src_list:
-        return torch.tensor([src_list, dst_list], dtype=torch.long, device=device)
-    return torch.empty((2, 0), dtype=torch.long, device=device)
+
+    n = adj.size(0)
+    a = triplets[:, 0]  # [num_triplets]
+    b = triplets[:, 1]  # [num_triplets]
+    c = triplets[:, 2]  # [num_triplets]
+
+    # Create lookup table: canonical_idx -> triplet_index
+    # For triplet {x, y, z} with x < y < z: canonical_idx = x * n^2 + y * n + z
+    # triplets are already sorted (from torch.combinations)
+    canonical_idx = a * (n * n) + b * n + c
+    lookup = torch.full((n * n * n,), -1, dtype=torch.long, device=device)
+    lookup[canonical_idx] = torch.arange(num_triplets, device=device)
+
+    all_src = []
+    all_dst = []
+
+    # Case 1: Replace c with d where (c, d) ∈ E, target = {a, b, d}
+    adj_c = adj[c]  # [num_triplets, n]
+    valid_d_mask = (adj_c == 1)
+    # Exclude d == a, b, c
+    valid_d_mask[torch.arange(num_triplets, device=device), a] = False
+    valid_d_mask[torch.arange(num_triplets, device=device), b] = False
+    valid_d_mask[torch.arange(num_triplets, device=device), c] = False
+
+    trip_idx, d_vals = valid_d_mask.nonzero(as_tuple=True)
+    if trip_idx.numel() > 0:
+        a_vals = a[trip_idx]
+        b_vals = b[trip_idx]
+        # Target triplet: {a, b, d} - need to sort to canonical form
+        # Stack and sort along dim=1
+        target_triplets = torch.stack([a_vals, b_vals, d_vals], dim=1)
+        target_sorted, _ = target_triplets.sort(dim=1)
+        target_canonical = (target_sorted[:, 0] * (n * n) +
+                           target_sorted[:, 1] * n +
+                           target_sorted[:, 2])
+        target_trip_idx = lookup[target_canonical]
+        valid = target_trip_idx >= 0
+        all_src.append(trip_idx[valid])
+        all_dst.append(target_trip_idx[valid])
+
+    # Case 2: Replace b with d where (b, d) ∈ E, target = {a, c, d}
+    adj_b = adj[b]  # [num_triplets, n]
+    valid_d_mask = (adj_b == 1)
+    valid_d_mask[torch.arange(num_triplets, device=device), a] = False
+    valid_d_mask[torch.arange(num_triplets, device=device), b] = False
+    valid_d_mask[torch.arange(num_triplets, device=device), c] = False
+
+    trip_idx, d_vals = valid_d_mask.nonzero(as_tuple=True)
+    if trip_idx.numel() > 0:
+        a_vals = a[trip_idx]
+        c_vals = c[trip_idx]
+        target_triplets = torch.stack([a_vals, c_vals, d_vals], dim=1)
+        target_sorted, _ = target_triplets.sort(dim=1)
+        target_canonical = (target_sorted[:, 0] * (n * n) +
+                           target_sorted[:, 1] * n +
+                           target_sorted[:, 2])
+        target_trip_idx = lookup[target_canonical]
+        valid = target_trip_idx >= 0
+        all_src.append(trip_idx[valid])
+        all_dst.append(target_trip_idx[valid])
+
+    # Case 3: Replace a with d where (a, d) ∈ E, target = {b, c, d}
+    adj_a = adj[a]  # [num_triplets, n]
+    valid_d_mask = (adj_a == 1)
+    valid_d_mask[torch.arange(num_triplets, device=device), a] = False
+    valid_d_mask[torch.arange(num_triplets, device=device), b] = False
+    valid_d_mask[torch.arange(num_triplets, device=device), c] = False
+
+    trip_idx, d_vals = valid_d_mask.nonzero(as_tuple=True)
+    if trip_idx.numel() > 0:
+        b_vals = b[trip_idx]
+        c_vals = c[trip_idx]
+        target_triplets = torch.stack([b_vals, c_vals, d_vals], dim=1)
+        target_sorted, _ = target_triplets.sort(dim=1)
+        target_canonical = (target_sorted[:, 0] * (n * n) +
+                           target_sorted[:, 1] * n +
+                           target_sorted[:, 2])
+        target_trip_idx = lookup[target_canonical]
+        valid = target_trip_idx >= 0
+        all_src.append(trip_idx[valid])
+        all_dst.append(target_trip_idx[valid])
+
+    if not all_src:
+        return torch.empty((2, 0), dtype=torch.long, device=device)
+
+    return torch.stack([torch.cat(all_src), torch.cat(all_dst)])
 
 
 # =============================================================================
