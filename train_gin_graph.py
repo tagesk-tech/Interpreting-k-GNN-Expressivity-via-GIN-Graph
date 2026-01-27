@@ -21,7 +21,7 @@ import os
 import time
 from typing import Optional, Tuple, Dict, List
 
-from data_loader import load_mutag, get_class_subset, get_class_statistics, get_dataset_statistics
+from data_loader import load_dataset, get_class_subset, get_class_statistics, get_dataset_statistics, AVAILABLE_DATASETS
 from models_kgnn import get_model
 from gin_generator import GINGenerator, GINDiscriminator
 from model_wrapper import DenseToSparseWrapper, SimpleDenseGNN
@@ -373,15 +373,16 @@ class GINGraphTrainer:
 def load_pretrained_kgnn(
     model_name: str,
     checkpoint_dir: str,
-    device: torch.device
+    device: torch.device,
+    dataset_name: str = 'mutag'
 ) -> nn.Module:
     """Load a pretrained k-GNN model."""
-    checkpoint_path = os.path.join(checkpoint_dir, f'{model_name}.pt')
-    
+    checkpoint_path = os.path.join(checkpoint_dir, f'{dataset_name}_{model_name}.pt')
+
     if not os.path.exists(checkpoint_path):
         raise FileNotFoundError(
             f"Checkpoint not found: {checkpoint_path}\n"
-            f"Please train the model first: python train_kgnn.py --model {model_name}"
+            f"Please train the model first: python train_kgnn.py --dataset {dataset_name} --model {model_name}"
         )
     
     checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -403,12 +404,14 @@ def load_pretrained_kgnn(
 
 def main():
     parser = argparse.ArgumentParser(description='Train GIN-Graph explanation generator')
+    parser.add_argument('--dataset', type=str, default='mutag',
+                        choices=AVAILABLE_DATASETS,
+                        help=f'Dataset to use ({", ".join(AVAILABLE_DATASETS)})')
     parser.add_argument('--model', type=str, default='1gnn',
                         choices=['1gnn', '12gnn', '123gnn'],
                         help='k-GNN model to explain')
     parser.add_argument('--target_class', type=int, default=0,
-                        choices=[0, 1],
-                        help='Target class (0=Mutagen, 1=Non-Mutagen)')
+                        help='Target class for explanation generation')
     parser.add_argument('--epochs', type=int, default=300,
                         help='Training epochs')
     parser.add_argument('--batch_size', type=int, default=64,
@@ -428,24 +431,27 @@ def main():
     parser.add_argument('--num_samples', type=int, default=100,
                         help='Number of explanation samples to generate')
     args = parser.parse_args()
-    
+
     # Setup device
     if args.device == 'auto':
         device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     else:
         device = torch.device(args.device)
-    
+
+    dataset_name = args.dataset.lower()
+
     print("=" * 60)
     print("GIN-Graph Training")
     print("=" * 60)
+    print(f"Dataset: {dataset_name.upper()}")
     print(f"Model to explain: {args.model.upper()}")
-    print(f"Target class: {args.target_class} ({CLASS_NAMES[args.target_class]})")
+    print(f"Target class: {args.target_class}")
     print(f"Device: {device}")
     print()
-    
+
     # Load dataset
-    print("Loading MUTAG dataset...")
-    dataset = load_mutag()
+    print(f"Loading {dataset_name.upper()} dataset...")
+    dataset = load_dataset(dataset_name)
     
     # Get class statistics for validation
     class_stats = get_class_statistics(dataset)
@@ -462,10 +468,10 @@ def main():
     
     # Load pretrained k-GNN
     print("Loading pretrained k-GNN...")
-    pretrained_gnn = load_pretrained_kgnn(args.model, args.checkpoint_dir, device)
+    pretrained_gnn = load_pretrained_kgnn(args.model, args.checkpoint_dir, device, dataset_name)
     print()
-    
-    # Create configs
+
+    # Create configs with dataset-specific settings
     gin_config = GINGraphConfig(
         latent_dim=args.latent_dim,
         hidden_dim=args.hidden_dim,
@@ -473,8 +479,8 @@ def main():
         epochs=args.epochs,
         batch_size=args.batch_size
     )
-    
-    data_config = DataConfig()
+
+    data_config = DataConfig.from_dataset(dataset_name)
     
     # Create trainer
     trainer = GINGraphTrainer(
@@ -517,15 +523,15 @@ def main():
     
     # Save checkpoint
     os.makedirs(args.output_dir, exist_ok=True)
-    save_path = os.path.join(args.output_dir, f'gin_graph_{args.model}_class{args.target_class}.pt')
+    save_path = os.path.join(args.output_dir, f'gin_graph_{dataset_name}_{args.model}_class{args.target_class}.pt')
     trainer.save_checkpoint(save_path)
     print(f"\nCheckpoint saved to: {save_path}")
-    
+
     # Save best explanations
     if best:
         best_indices = [idx for idx, _ in best]
         np.savez(
-            os.path.join(args.output_dir, f'explanations_{args.model}_class{args.target_class}.npz'),
+            os.path.join(args.output_dir, f'explanations_{dataset_name}_{args.model}_class{args.target_class}.npz'),
             adjs=adjs[best_indices],
             xs=xs[best_indices],
             indices=best_indices

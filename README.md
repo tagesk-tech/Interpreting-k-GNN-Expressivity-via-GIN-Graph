@@ -1,3 +1,9 @@
+stuff to do:
+1. optimize code to run on larger datasets. 
+2. Train model and interperet results on larger datasets with more complex graphs.
+
+
+
 # k-GNN Interpretation with GIN-Graph
 
 This project investigates whether higher-order Graph Neural Networks (k-GNNs) provide better structural interpretations compared to standard 1-GNNs. We use the GIN-Graph method for model-level explanation generation.
@@ -17,7 +23,7 @@ We compare:
 kgnn_interpretation/
 ├── config.py              # Central configuration
 ├── data_loader.py         # MUTAG dataset loading utilities
-├── models_kgnn.py         # k-GNN model implementations
+├── models_kgnn.py         # k-GNN model implementationspy
 ├── gin_generator.py       # GIN-Graph generator and discriminator
 ├── model_wrapper.py       # Wrapper for dense inputs
 ├── dynamic_weighting.py   # Dynamic loss weighting scheme

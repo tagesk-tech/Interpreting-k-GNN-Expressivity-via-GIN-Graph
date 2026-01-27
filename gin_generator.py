@@ -108,7 +108,8 @@ class GINGenerator(nn.Module):
         Sample graphs from the generator.
         
         Args:
-            num_samples: Number of graphs to generate
+            num_samples: Number of graph
+            s to generate
             device: Device to generate on
             temperature: Gumbel-Softmax temperature
             

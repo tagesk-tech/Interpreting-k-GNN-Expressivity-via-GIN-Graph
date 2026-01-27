@@ -1,19 +1,114 @@
 """
 data_loader.py
-Data loading utilities for the MUTAG dataset.
+Data loading utilities for graph classification datasets.
+
+Supported datasets:
+- MUTAG: 188 mutagenic compounds, binary classification
+- DD: Large protein graphs, binary classification
+- PROTEINS: Medium protein graphs, binary classification
+- QM9: 130k molecules with regression targets (not suitable for classification)
 """
 
 import torch
-from torch_geometric.datasets import TUDataset
+from torch_geometric.datasets import TUDataset, QM9
 from torch_geometric.loader import DataLoader
 from torch_geometric.utils import to_dense_adj
 import numpy as np
 from collections import Counter
 import ssl
-from typing import Tuple, Dict, Any, Optional
+from typing import Tuple, Dict, Any, Optional, Union
 
 # Fix SSL certificate issues
 ssl._create_default_https_context = ssl._create_unverified_context
+
+
+# Available datasets for classification
+AVAILABLE_DATASETS = ['mutag', 'dd', 'proteins']
+
+# Dataset metadata for configuration
+DATASET_INFO = {
+    'mutag': {
+        'name': 'MUTAG',
+        'max_nodes': 28,
+        'task': 'classification',
+        'description': '188 mutagenic compounds, binary classification'
+    },
+    'dd': {
+        'name': 'DD',
+        'max_nodes': 500,  # DD has larger graphs
+        'task': 'classification',
+        'description': 'Large protein graphs, binary classification'
+    },
+    'proteins': {
+        'name': 'PROTEINS',
+        'max_nodes': 620,  # PROTEINS can have large graphs
+        'task': 'classification',
+        'description': 'Medium protein graphs, binary classification'
+    },
+    'qm9': {
+        'name': 'QM9',
+        'max_nodes': 29,
+        'task': 'regression',
+        'description': '130k molecules, regression (not for classification)'
+    }
+}
+
+
+def load_dataset(name: str, root: str = './data') -> TUDataset:
+    """
+    Load a dataset by name.
+
+    Args:
+        name: Dataset name (mutag, dd, proteins, qm9)
+        root: Directory to store/load the dataset
+
+    Returns:
+        The loaded dataset
+
+    Raises:
+        ValueError: If dataset name is not recognized
+    """
+    name = name.lower()
+
+    if name == 'mutag':
+        return load_mutag(root)
+    elif name == 'dd':
+        return load_dd(root)
+    elif name == 'proteins':
+        return load_proteins(root)
+    elif name == 'qm9':
+        return load_qm9(root)
+    else:
+        raise ValueError(
+            f"Unknown dataset: {name}. "
+            f"Available datasets: {', '.join(AVAILABLE_DATASETS + ['qm9'])}"
+        )
+
+
+def get_dataset_info(name: str) -> Dict[str, Any]:
+    """Get metadata about a dataset."""
+    name = name.lower()
+    if name not in DATASET_INFO:
+        raise ValueError(f"Unknown dataset: {name}")
+    return DATASET_INFO[name]
+
+
+def load_dd(root: str = './data') -> TUDataset:
+    """Load the D&D dataset (large protein graphs)."""
+    return TUDataset(root=root, name='DD')
+
+
+def load_proteins(root: str = './data') -> TUDataset:
+    """Load the PROTEINS dataset (medium protein graphs)."""
+    return TUDataset(root=root, name='PROTEINS')
+
+
+def load_qm9(root: str = './data') -> QM9:
+    """
+    Load the QM9 dataset (130k molecules with regression targets).
+    Note: QM9 uses regression targets, not suitable for classification tasks.
+    """
+    return QM9(root=root)
 
 
 def load_mutag(root: str = './data') -> TUDataset:
@@ -32,7 +127,9 @@ def load_mutag(root: str = './data') -> TUDataset:
         dataset: The full MUTAG dataset
     """
     dataset = TUDataset(root=root, name='MUTAG')
+  
     return dataset
+
 
 
 def get_dataset_statistics(dataset: TUDataset) -> Dict[str, Any]:
@@ -181,20 +278,28 @@ def get_class_statistics(dataset: TUDataset) -> Dict[int, Dict[str, float]]:
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Test data loader')
+    parser.add_argument('--dataset', type=str, default='mutag',
+                        choices=AVAILABLE_DATASETS,
+                        help=f'Dataset to load ({", ".join(AVAILABLE_DATASETS)})')
+    args = parser.parse_args()
+
     # Test the data loader
-    print("Loading MUTAG dataset...\n")
-    dataset = load_mutag()
-    
+    print(f"Loading {args.dataset.upper()} dataset...\n")
+    dataset = load_dataset(args.dataset)
+
     stats = get_dataset_statistics(dataset)
     print_dataset_statistics(stats)
-    
+
     print("\n")
     train_loader, test_loader, train_data, test_data = create_data_loaders(
         dataset, train_ratio=0.8, batch_size=32
     )
     print(f"Train: {len(train_data)} graphs, Test: {len(test_data)} graphs")
-    
+
     class_stats = get_class_statistics(dataset)
     print(f"\nPer-class degree statistics:")
-    for label, stats in class_stats.items():
-        print(f"  Class {label}: mean={stats['mean_degree']:.2f}, std={stats['std_degree']:.2f}")
+    for label, stats_item in class_stats.items():
+        print(f"  Class {label}: mean={stats_item['mean_degree']:.2f}, std={stats_item['std_degree']:.2f}")

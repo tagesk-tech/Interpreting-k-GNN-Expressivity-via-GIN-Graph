@@ -22,44 +22,48 @@ import json
 import time
 from datetime import datetime
 
-from data_loader import load_mutag, create_data_loaders, get_class_statistics, get_dataset_statistics
+from data_loader import load_dataset, create_data_loaders, get_class_statistics, get_dataset_statistics, AVAILABLE_DATASETS
 from models_kgnn import get_model, count_parameters
 from train_kgnn import train_single_model
 from train_gin_graph import GINGraphTrainer, load_pretrained_kgnn
 from visualize import (
-    plot_explanation_grid, 
+    plot_explanation_grid,
     plot_training_history,
     plot_validation_scores_distribution,
     create_comparison_figure,
     plot_atom_legend
 )
 from metrics import ExplanationEvaluator
-from config import ExperimentConfig, CLASS_NAMES
+from config import ExperimentConfig, CLASS_NAMES, DataConfig
 
 
 def setup_experiment(args):
     """Setup experiment directories and configuration."""
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    
+
+    # Create dataset-specific data config
+    data_config = DataConfig.from_dataset(args.dataset)
+
     config = ExperimentConfig(
+        data=data_config,
         checkpoint_dir=args.checkpoint_dir,
-        results_dir=os.path.join(args.output_dir, f'experiment_{timestamp}'),
-        figures_dir=os.path.join(args.output_dir, f'experiment_{timestamp}', 'figures'),
+        results_dir=os.path.join(args.output_dir, f'experiment_{args.dataset}_{timestamp}'),
+        figures_dir=os.path.join(args.output_dir, f'experiment_{args.dataset}_{timestamp}', 'figures'),
         device=args.device
     )
-    
+
     # Override from args
     config.kgnn.epochs = args.kgnn_epochs
     config.kgnn.hidden_dim = args.hidden_dim
     config.gin_graph.epochs = args.gin_epochs
     config.gin_graph.hidden_dim = args.hidden_dim
     config.target_class = args.target_class
-    
+
     # Create directories
     os.makedirs(config.checkpoint_dir, exist_ok=True)
     os.makedirs(config.results_dir, exist_ok=True)
     os.makedirs(config.figures_dir, exist_ok=True)
-    
+
     return config
 
 
@@ -90,27 +94,29 @@ def run_kgnn_training(config, models_to_train, dataset, train_loader, test_loade
     return results
 
 
-def run_gin_graph_training(config, models_to_train, dataset, device, class_stats):
+def run_gin_graph_training(config, models_to_train, dataset, device, class_stats, dataset_name):
     """Train GIN-Graph generators for each k-GNN model."""
     print("\n" + "=" * 70)
     print("PHASE 2: Training GIN-Graph Generators")
     print("=" * 70)
-    
+
     target_class = config.target_class
     target_dataset = [d for d in dataset if d.y.item() == target_class]
-    
-    print(f"\nTarget class: {target_class} ({CLASS_NAMES[target_class]})")
+
+    # Use CLASS_NAMES for MUTAG, otherwise just show class number
+    class_label = CLASS_NAMES.get(target_class, f"Class {target_class}") if dataset_name == 'mutag' else f"Class {target_class}"
+    print(f"\nTarget class: {target_class} ({class_label})")
     print(f"Training samples: {len(target_dataset)}")
-    
+
     results = {}
-    
+
     for model_name in models_to_train:
         print(f"\n{'='*60}")
         print(f"GIN-Graph for {model_name.upper()}")
         print('='*60)
-        
+
         # Load pretrained k-GNN
-        pretrained_gnn = load_pretrained_kgnn(model_name, config.checkpoint_dir, device)
+        pretrained_gnn = load_pretrained_kgnn(model_name, config.checkpoint_dir, device, dataset_name)
         
         # Create trainer
         trainer = GINGraphTrainer(
@@ -213,20 +219,25 @@ def generate_figures(config, gin_results, models_to_train):
     print(f"\nFigures saved to: {config.figures_dir}")
 
 
-def generate_report(config, kgnn_results, gin_results, models_to_train):
+def generate_report(config, kgnn_results, gin_results, models_to_train, dataset_name):
     """Generate final experiment report."""
     print("\n" + "=" * 70)
     print("EXPERIMENT RESULTS SUMMARY")
     print("=" * 70)
-    
+
+    # Use CLASS_NAMES for MUTAG, otherwise just show class number
+    class_label = CLASS_NAMES.get(config.target_class, f"Class {config.target_class}") if dataset_name == 'mutag' else f"Class {config.target_class}"
+
     report = {
         'timestamp': datetime.now().isoformat(),
+        'dataset': dataset_name,
         'target_class': config.target_class,
-        'target_class_name': CLASS_NAMES[config.target_class],
+        'target_class_name': class_label,
         'models': {}
     }
-    
-    print(f"\nTarget Class: {config.target_class} ({CLASS_NAMES[config.target_class]})")
+
+    print(f"\nDataset: {dataset_name.upper()}")
+    print(f"Target Class: {config.target_class} ({class_label})")
     print("\n" + "-" * 70)
     print(f"{'Model':<10} | {'Params':<10} | {'Test Acc':<10} | {'Valid %':<10} | {'Val Score':<10} | {'Pred Prob':<10}")
     print("-" * 70)
@@ -291,13 +302,17 @@ def generate_report(config, kgnn_results, gin_results, models_to_train):
 
 def main():
     parser = argparse.ArgumentParser(description='Run k-GNN interpretation experiment')
-    
+
+    # Dataset selection
+    parser.add_argument('--dataset', type=str, default='mutag',
+                        choices=AVAILABLE_DATASETS,
+                        help=f'Dataset to use ({", ".join(AVAILABLE_DATASETS)})')
+
     # Model selection
     parser.add_argument('--models', nargs='+', default=['1gnn', '12gnn', '123gnn'],
                         choices=['1gnn', '12gnn', '123gnn'],
                         help='Models to train and interpret')
     parser.add_argument('--target_class', type=int, default=0,
-                        choices=[0, 1],
                         help='Target class for interpretation')
     
     # Training settings
@@ -335,18 +350,24 @@ def main():
     if device.type == 'cuda':
         torch.cuda.manual_seed(args.seed)
     
+    dataset_name = args.dataset.lower()
+
+    # Use CLASS_NAMES for MUTAG, otherwise just show class number
+    class_label = CLASS_NAMES.get(args.target_class, f"Class {args.target_class}") if dataset_name == 'mutag' else f"Class {args.target_class}"
+
     print("=" * 70)
     print("k-GNN Interpretation Experiment")
     print("=" * 70)
+    print(f"Dataset: {dataset_name.upper()}")
     print(f"Device: {device}")
     print(f"Models: {args.models}")
-    print(f"Target class: {args.target_class} ({CLASS_NAMES[args.target_class]})")
+    print(f"Target class: {args.target_class} ({class_label})")
     print(f"Output: {config.results_dir}")
     print()
-    
+
     # Load dataset
-    print("Loading MUTAG dataset...")
-    dataset = load_mutag(config.data.root)
+    print(f"Loading {dataset_name.upper()} dataset...")
+    dataset = load_dataset(dataset_name, config.data.root)
     stats = get_dataset_statistics(dataset)
     
     train_loader, test_loader, _, _ = create_data_loaders(
@@ -370,7 +391,7 @@ def main():
         print("Skipping k-GNN training (using existing checkpoints)")
         kgnn_results = {}
         for model_name in args.models:
-            checkpoint_path = os.path.join(config.checkpoint_dir, f'{model_name}.pt')
+            checkpoint_path = os.path.join(config.checkpoint_dir, f'{dataset_name}_{model_name}.pt')
             if os.path.exists(checkpoint_path):
                 checkpoint = torch.load(checkpoint_path, map_location=device)
                 kgnn_results[model_name] = {
@@ -378,7 +399,7 @@ def main():
                     'num_params': checkpoint.get('num_params', 0)
                 }
             else:
-                print(f"Warning: Checkpoint not found for {model_name}")
+                print(f"Warning: Checkpoint not found for {model_name} at {checkpoint_path}")
     else:
         kgnn_results = run_kgnn_training(
             config, args.models, dataset, train_loader, test_loader, device
@@ -390,7 +411,7 @@ def main():
         gin_results = {}
     else:
         gin_results = run_gin_graph_training(
-            config, args.models, dataset, device, class_stats
+            config, args.models, dataset, device, class_stats, dataset_name
         )
     
     # Phase 3: Generate figures
@@ -399,7 +420,7 @@ def main():
     
     # Phase 4: Generate report
     if gin_results:
-        report = generate_report(config, kgnn_results, gin_results, args.models)
+        report = generate_report(config, kgnn_results, gin_results, args.models, dataset_name)
     
     print("\n" + "=" * 70)
     print("EXPERIMENT COMPLETE")

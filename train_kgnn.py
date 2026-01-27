@@ -1,12 +1,17 @@
 """
 train_kgnn.py
-Training script for k-GNN models on MUTAG.
+Training script for k-GNN models on graph classification datasets.
 
 Usage:
     python train_kgnn.py --model 1gnn --epochs 100
     python train_kgnn.py --model 12gnn --epochs 100
     python train_kgnn.py --model 123gnn --epochs 100
     python train_kgnn.py --all  # Train all models
+
+    # Train on different datasets:
+    python train_kgnn.py --dataset mutag --model 1gnn
+    python train_kgnn.py --dataset dd --model 1gnn
+    python train_kgnn.py --dataset proteins --model 1gnn
 """
 
 import torch
@@ -16,7 +21,7 @@ import time
 import os
 from pathlib import Path
 
-from data_loader import load_mutag, create_data_loaders, get_dataset_statistics, print_dataset_statistics
+from data_loader import load_dataset, create_data_loaders, get_dataset_statistics, print_dataset_statistics, AVAILABLE_DATASETS
 from models_kgnn import get_model, count_parameters
 from config import ExperimentConfig, KGNNConfig, DataConfig
 
@@ -76,10 +81,10 @@ def train_single_model(
     verbose: bool = True
 ):
     """Train a single k-GNN model."""
-    
+
     if verbose:
         print("=" * 60)
-        print(f"Training {model_name.upper()} on MUTAG")
+        print(f"Training {model_name.upper()} on {config.data.name}")
         print("=" * 60)
     
     # Create model
@@ -143,13 +148,15 @@ def train_single_model(
     # Restore best model
     model.load_state_dict(best_model_state)
     
-    # Save model
+    # Save model (include dataset name in filename)
     os.makedirs(config.checkpoint_dir, exist_ok=True)
-    save_path = os.path.join(config.checkpoint_dir, f'{model_name}.pt')
-    
+    dataset_name = config.data.name.lower()
+    save_path = os.path.join(config.checkpoint_dir, f'{dataset_name}_{model_name}.pt')
+
     torch.save({
         'model_state_dict': model.state_dict(),
         'model_name': model_name,
+        'dataset_name': dataset_name,
         'hidden_dim': config.kgnn.hidden_dim,
         'input_dim': dataset.num_node_features,
         'output_dim': dataset.num_classes,
@@ -166,7 +173,10 @@ def train_single_model(
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Train k-GNN models on MUTAG')
+    parser = argparse.ArgumentParser(description='Train k-GNN models on graph classification datasets')
+    parser.add_argument('--dataset', type=str, default='mutag',
+                        choices=AVAILABLE_DATASETS,
+                        help=f'Dataset to train on ({", ".join(AVAILABLE_DATASETS)})')
     parser.add_argument('--model', type=str, default='1gnn',
                         choices=['1gnn', '12gnn', '123gnn'],
                         help='Model architecture to train')
@@ -187,10 +197,16 @@ def main():
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints',
                         help='Directory to save checkpoints')
     args = parser.parse_args()
-    
-    # Create config
+
+    # Create config with dataset-specific settings
+    data_config = DataConfig.from_dataset(
+        args.dataset,
+        batch_size=args.batch_size,
+        seed=args.seed
+    )
+
     config = ExperimentConfig(
-        data=DataConfig(batch_size=args.batch_size, seed=args.seed),
+        data=data_config,
         kgnn=KGNNConfig(
             hidden_dim=args.hidden,
             learning_rate=args.lr,
@@ -199,23 +215,23 @@ def main():
         checkpoint_dir=args.checkpoint_dir,
         device=args.device
     )
-    
+
     device = config.get_device()
-    
+
     # Set seeds
     torch.manual_seed(args.seed)
     if device.type == 'cuda':
         torch.cuda.manual_seed(args.seed)
-    
+
     print("=" * 60)
-    print("k-GNN Training for MUTAG Dataset")
+    print(f"k-GNN Training for {config.data.name} Dataset")
     print("=" * 60)
     print(f"Device: {device}")
     print()
-    
+
     # Load data
-    print("Loading MUTAG dataset...")
-    dataset = load_mutag(config.data.root)
+    print(f"Loading {config.data.name} dataset...")
+    dataset = load_dataset(args.dataset, config.data.root)
     stats = get_dataset_statistics(dataset)
     print_dataset_statistics(stats)
     

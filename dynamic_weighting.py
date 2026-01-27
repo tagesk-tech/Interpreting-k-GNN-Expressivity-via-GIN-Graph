@@ -30,8 +30,8 @@ class DynamicWeighting:
         total_iterations: int,
         min_lambda: float = 0.0,
         max_lambda: float = 1.0,
-        p: float = 0.4,
-        k: float = 10.0
+        p: float = 0.2,
+        k: float = 5.0
     ):
         """
         Args:

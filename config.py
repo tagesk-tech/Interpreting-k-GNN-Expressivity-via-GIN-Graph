@@ -10,6 +10,26 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 
+# Dataset-specific configurations
+DATASET_CONFIGS = {
+    'mutag': {
+        'max_nodes': 28,
+        'num_node_features': 7,  # Atom types: C, N, O, F, I, Cl, Br
+        'num_classes': 2,
+    },
+    'dd': {
+        'max_nodes': 500,
+        'num_node_features': 89,  # DD has 89 node features
+        'num_classes': 2,
+    },
+    'proteins': {
+        'max_nodes': 620,
+        'num_node_features': 3,  # PROTEINS has 3 node features
+        'num_classes': 2,
+    },
+}
+
+
 @dataclass
 class DataConfig:
     """Dataset configuration."""
@@ -18,8 +38,38 @@ class DataConfig:
     train_ratio: float = 0.8
     batch_size: int = 32
     seed: int = 42
-    max_nodes: int = 28  # Maximum nodes in MUTAG
-    num_node_features: int = 7  # Atom types: C, N, O, F, I, Cl, Br
+    max_nodes: int = 28
+    num_node_features: int = 7
+
+    @classmethod
+    def from_dataset(cls, dataset_name: str, **kwargs) -> 'DataConfig':
+        """
+        Create a DataConfig from a dataset name with appropriate defaults.
+
+        Args:
+            dataset_name: Name of the dataset (mutag, dd, proteins)
+            **kwargs: Override any default parameters
+
+        Returns:
+            DataConfig with dataset-specific settings
+        """
+        name_lower = dataset_name.lower()
+        if name_lower not in DATASET_CONFIGS:
+            raise ValueError(
+                f"Unknown dataset: {dataset_name}. "
+                f"Available: {list(DATASET_CONFIGS.keys())}"
+            )
+
+        config = DATASET_CONFIGS[name_lower]
+        return cls(
+            name=dataset_name.upper(),
+            max_nodes=kwargs.get('max_nodes', config['max_nodes']),
+            num_node_features=kwargs.get('num_node_features', config['num_node_features']),
+            root=kwargs.get('root', './data'),
+            train_ratio=kwargs.get('train_ratio', 0.8),
+            batch_size=kwargs.get('batch_size', 32),
+            seed=kwargs.get('seed', 42),
+        )
 
 
 @dataclass
