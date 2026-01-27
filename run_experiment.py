@@ -182,15 +182,30 @@ def generate_figures(config, gin_results, models_to_train, dataset_name='mutag')
 
         # Best explanations grid
         best_idx = data['best_indices'][:10]
-        plot_explanation_grid(
-            data['adjs'][best_idx],
-            data['xs'][best_idx],
-            [data['metrics'][i] for i in best_idx],
-            num_cols=5,
-            save_path=os.path.join(config.figures_dir, f'explanations_{model_name}.png'),
-            title=f'Best Explanations for {model_name.upper()}',
-            dataset=dataset_name
-        )
+        if len(best_idx) > 0:
+            plot_explanation_grid(
+                data['adjs'][best_idx],
+                data['xs'][best_idx],
+                [data['metrics'][i] for i in best_idx],
+                num_cols=5,
+                save_path=os.path.join(config.figures_dir, f'explanations_{model_name}.png'),
+                title=f'Best Explanations for {model_name.upper()}',
+                dataset=dataset_name
+            )
+        else:
+            # No valid explanations - show top by validation score regardless of validity
+            all_scores = [(i, m.validation_score) for i, m in enumerate(data['metrics'])]
+            all_scores.sort(key=lambda x: x[1], reverse=True)
+            top_idx = [i for i, _ in all_scores[:10]]
+            plot_explanation_grid(
+                data['adjs'][top_idx],
+                data['xs'][top_idx],
+                [data['metrics'][i] for i in top_idx],
+                num_cols=5,
+                save_path=os.path.join(config.figures_dir, f'explanations_{model_name}.png'),
+                title=f'Top Explanations for {model_name.upper()} (none valid)',
+                dataset=dataset_name
+            )
         
         # Training history
         plot_training_history(
@@ -321,7 +336,7 @@ def main():
     # Training settings
     parser.add_argument('--kgnn_epochs', type=int, default=100,
                         help='Epochs for k-GNN training')
-    parser.add_argument('--gin_epochs', type=int, default=100,
+    parser.add_argument('--gin_epochs', type=int, default=300,
                         help='Epochs for GIN-Graph training')
     parser.add_argument('--hidden_dim', type=int, default=64,
                         help='Hidden dimension')

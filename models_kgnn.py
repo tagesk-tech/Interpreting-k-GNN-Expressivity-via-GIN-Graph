@@ -391,22 +391,33 @@ class Hierarchical12GNN(nn.Module):
         self,
         h: torch.Tensor,
         edge_index: torch.Tensor,
-        batch: torch.Tensor
+        batch: torch.Tensor,
+        max_pairs: int = 5000
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
-        """Build 2-sets using 1-GNN embeddings as features."""
+        """Build 2-sets using 1-GNN embeddings as features.
+
+        Args:
+            max_pairs: Maximum number of pairs per graph. If a graph has more
+                       potential pairs than this, randomly sample. Set to 0 for no limit.
+        """
         device = h.device
-        
+
         all_feats, all_batch, all_src, all_dst = [], [], [], []
         offset = 0
-        
+
         for g in batch.unique():
             mask = (batch == g)
             nodes = mask.nonzero(as_tuple=True)[0]
             n = nodes.size(0)
             if n < 2:
                 continue
-            
+
             pairs = torch.combinations(torch.arange(n, device=device), r=2)
+
+            # Sample pairs if too many (for large graphs like PROTEINS)
+            if max_pairs > 0 and pairs.size(0) > max_pairs:
+                perm = torch.randperm(pairs.size(0), device=device)[:max_pairs]
+                pairs = pairs[perm]
             adj = build_local_adj(edge_index, nodes, n, device)
             
             feat_u = h[nodes[pairs[:, 0]]]
@@ -515,21 +526,27 @@ class Hierarchical123GNN(nn.Module):
         self,
         h: torch.Tensor,
         edge_index: torch.Tensor,
-        batch: torch.Tensor
+        batch: torch.Tensor,
+        max_pairs: int = 5000
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         device = h.device
         all_feats, all_batch, all_src, all_dst = [], [], [], []
         offset = 0
-        
+
         for g in batch.unique():
             mask = (batch == g)
             nodes = mask.nonzero(as_tuple=True)[0]
             n = nodes.size(0)
             if n < 2:
                 continue
-            
+
             pairs = torch.combinations(torch.arange(n, device=device), r=2)
             adj = build_local_adj(edge_index, nodes, n, device)
+
+            # Sample pairs if too many (for large graphs like PROTEINS)
+            if max_pairs > 0 and pairs.size(0) > max_pairs:
+                perm = torch.randperm(pairs.size(0), device=device)[:max_pairs]
+                pairs = pairs[perm]
             
             feat_u = h[nodes[pairs[:, 0]]]
             feat_v = h[nodes[pairs[:, 1]]]
@@ -554,21 +571,27 @@ class Hierarchical123GNN(nn.Module):
         self,
         h: torch.Tensor,
         edge_index: torch.Tensor,
-        batch: torch.Tensor
+        batch: torch.Tensor,
+        max_triplets: int = 3000
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         device = h.device
         all_feats, all_batch, all_src, all_dst = [], [], [], []
         offset = 0
-        
+
         for g in batch.unique():
             mask = (batch == g)
             nodes = mask.nonzero(as_tuple=True)[0]
             n = nodes.size(0)
             if n < 3:
                 continue
-            
+
             trips = torch.combinations(torch.arange(n, device=device), r=3)
             adj = build_local_adj(edge_index, nodes, n, device)
+
+            # Sample triplets if too many (critical for large graphs)
+            if max_triplets > 0 and trips.size(0) > max_triplets:
+                perm = torch.randperm(trips.size(0), device=device)[:max_triplets]
+                trips = trips[perm]
             
             fa = h[nodes[trips[:, 0]]]
             fb = h[nodes[trips[:, 1]]]

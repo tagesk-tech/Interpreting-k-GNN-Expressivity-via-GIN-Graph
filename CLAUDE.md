@@ -69,6 +69,10 @@ Dataset (MUTAG/DD/PROTEINS) → k-GNN Training → GIN-Graph Generation → Expl
 - `OneGNNLayer`: Standard node-level message passing
 - `KSetLayer`: Generic layer for 2-GNN (node pairs) and 3-GNN (triplets)
 - Hierarchical models: 1-GNN, 2-GNN, 3-GNN, 1-2-GNN, 1-3-GNN, 1-2-3-GNN
+- **k-Set Sampling**: For large graphs (PROTEINS, DD), k-sets are randomly sampled to limit memory/time:
+  - `max_pairs=5000` for 2-sets (vs 192K pairs for 620-node graph)
+  - `max_triplets=3000` for 3-sets (vs 39M triplets for 620-node graph)
+  - Adjustable in `_build_2sets()` and `_build_3sets()` methods
 
 **Generator (`gin_generator.py`)**: Creates graphs from noise using Gumbel-Softmax for differentiable discrete sampling
 - `GINGenerator`: Outputs adjacency matrix and node features

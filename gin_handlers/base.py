@@ -186,6 +186,19 @@ class DatasetHandler(ABC):
             title = f"Generated Explanation Graphs ({self.name})"
 
         num_graphs = adjs.shape[0]
+
+        # Handle empty case
+        if num_graphs == 0:
+            fig, ax = plt.subplots(1, 1, figsize=(6, 4))
+            ax.text(0.5, 0.5, "No valid explanations generated",
+                    ha='center', va='center', fontsize=14)
+            ax.set_title(title)
+            ax.axis('off')
+            if save_path:
+                fig.savefig(save_path, dpi=150, bbox_inches='tight')
+                plt.close(fig)
+            return fig
+
         num_rows = (num_graphs + num_cols - 1) // num_cols
 
         if figsize is None:

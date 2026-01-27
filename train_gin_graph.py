@@ -107,6 +107,7 @@ class GINGraphTrainer:
             'g_loss': [],
             'gan_loss': [],
             'gnn_loss': [],
+            'degree_loss': [],
             'lambda': [],
             'pred_prob': [],
         }
@@ -157,9 +158,46 @@ class GINGraphTrainer:
 
         real_x = torch.stack(real_x_list).to(self.device)
         real_adj = torch.stack(real_adj_list).to(self.device)
-        
+
         return real_x, real_adj
-    
+
+    def _compute_degree_loss(self, fake_adj: torch.Tensor) -> torch.Tensor:
+        """
+        Compute degree regularization loss.
+
+        Penalizes generated graphs whose average degree deviates from
+        the target class's expected degree distribution.
+
+        Args:
+            fake_adj: Generated adjacency matrices [batch, N, N]
+
+        Returns:
+            Scalar degree loss tensor
+        """
+        # Get target statistics
+        stats = self.class_stats.get(self.target_class, {})
+        target_mean = stats.get('mean_degree', 2.0)
+        target_std = stats.get('std_degree', 1.0)
+
+        # Compute degree per node
+        degrees = fake_adj.sum(dim=-1)
+
+        # Count active nodes per graph (nodes with at least one edge)
+        active_mask = degrees > 0.5
+        num_active = active_mask.float().sum(dim=-1).clamp(min=1)
+
+        # Total edges per graph
+        total_edges = fake_adj.sum(dim=(-1, -2)) / 2
+
+        # Average degree per graph
+        avg_degrees = total_edges / num_active
+
+        # Normalized squared error (auto-scales by variance)
+        normalized_error = (avg_degrees - target_mean) / target_std
+        degree_loss = (normalized_error ** 2).mean()
+
+        return self.config.degree_lambda * degree_loss
+
     def train_discriminator_step(
         self,
         real_x: torch.Tensor,
@@ -175,7 +213,7 @@ class GINGraphTrainer:
         # Generate fake graphs
         z = torch.randn(batch_size, self.config.latent_dim, device=self.device)
         fake_adj, fake_x = self.generator(z, temperature=self.config.temperature)
-        
+
         # Score fake graphs (detached)
         fake_scores = self.discriminator(fake_x.detach(), fake_adj.detach())
         
@@ -198,18 +236,18 @@ class GINGraphTrainer:
         self,
         batch_size: int,
         current_lambda: float
-    ) -> Tuple[float, float, float, float]:
+    ) -> Tuple[float, float, float, float, float]:
         """Single generator training step."""
         self.optimizer_G.zero_grad()
-        
+
         # Generate fake graphs
         z = torch.randn(batch_size, self.config.latent_dim, device=self.device)
         fake_adj, fake_x = self.generator(z, temperature=self.config.temperature)
-        
+
         # GAN loss: -E[D(fake)]
         gan_scores = self.discriminator(fake_x, fake_adj)
         l_gan = -gan_scores.mean()
-        
+
         # GNN loss: Cross-entropy for target class
         gnn_logits = self.pretrained_gnn(fake_x, fake_adj)
         target_labels = torch.full(
@@ -217,19 +255,23 @@ class GINGraphTrainer:
             device=self.device, dtype=torch.long
         )
         l_gnn = F.cross_entropy(gnn_logits, target_labels)
-        
+
+        # Degree regularization loss (adaptive based on dataset variance)
+        l_degree = self._compute_degree_loss(fake_adj)
+
         # Combined loss with dynamic weighting
-        total_loss = (1 - current_lambda) * l_gan + current_lambda * l_gnn
-        
+        # Degree loss is always active to enforce structure
+        total_loss = (1 - current_lambda) * l_gan + current_lambda * l_gnn + l_degree
+
         total_loss.backward()
         self.optimizer_G.step()
-        
+
         # Compute prediction probability for logging
         with torch.no_grad():
             probs = F.softmax(gnn_logits, dim=1)
             pred_prob = probs[:, self.target_class].mean().item()
-        
-        return total_loss.item(), l_gan.item(), l_gnn.item(), pred_prob
+
+        return total_loss.item(), l_gan.item(), l_gnn.item(), pred_prob, l_degree.item()
     
     def train(
         self,
@@ -291,22 +333,23 @@ class GINGraphTrainer:
                 
                 # Train generator
                 current_lambda = weight_scheduler.get_lambda()
-                g_loss, gan_loss, gnn_loss, pred_prob = self.train_generator_step(
+                g_loss, gan_loss, gnn_loss, pred_prob, degree_loss = self.train_generator_step(
                     batch_size, current_lambda
                 )
-                
+
                 # Track metrics
                 epoch_d_loss += d_loss
                 epoch_g_loss += g_loss
                 epoch_pred_prob += pred_prob
                 num_batches += 1
                 self.global_step += 1
-                
+
                 # Store history
                 self.history['d_loss'].append(d_loss)
                 self.history['g_loss'].append(g_loss)
                 self.history['gan_loss'].append(gan_loss)
                 self.history['gnn_loss'].append(gnn_loss)
+                self.history['degree_loss'].append(degree_loss)
                 self.history['lambda'].append(current_lambda)
                 self.history['pred_prob'].append(pred_prob)
             

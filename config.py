@@ -108,10 +108,13 @@ class GINGraphConfig:
     # WGAN-GP
     gp_lambda: float = 10.0
     n_critic: int = 1  # Train discriminator n times per generator update
-    
+
     # Gumbel-Softmax temperature
     temperature: float = 1.0
     eval_temperature: float = 0.1  # Lower temp for sharper discrete outputs
+
+    # Degree regularization (adaptive based on dataset variance)
+    degree_lambda: float = 1.0  # Weight for degree loss (auto-scales by 1/std²)
 
 
 @dataclass

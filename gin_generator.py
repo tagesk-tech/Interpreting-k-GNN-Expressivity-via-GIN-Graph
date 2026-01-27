@@ -55,7 +55,7 @@ class GINGenerator(nn.Module):
         
         # Head for Adjacency Matrix (N x N)
         self.adj_head = nn.Linear(hidden_dim * 2, self.n * self.n)
-        
+
         # Head for Node Features (N x D)
         self.feat_head = nn.Linear(hidden_dim * 2, self.n * self.d)
     
