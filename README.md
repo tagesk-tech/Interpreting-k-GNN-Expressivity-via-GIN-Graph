@@ -1,7 +1,7 @@
 stuff to do:
-1. optimize code to run on larger datasets. 
-2. Train model and interperet results on larger datasets with more complex graphs.
-
+1. Start interpreting the results produced from the GIN graph
+2. systematicaly explore the 3 datasets and train them on the different models
+3. optimize code further to run smoother
 
 
 # k-GNN Interpretation with GIN-Graph
