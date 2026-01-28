@@ -328,7 +328,7 @@ def main():
 
     # Model selection
     parser.add_argument('--models', nargs='+', default=['1gnn', '12gnn', '123gnn'],
-                        choices=['1gnn', '12gnn', '123gnn'],
+                        choices=['1gnn', '2gnn', '3gnn', '12gnn', '123gnn'],
                         help='Models to train and interpret')
     parser.add_argument('--target_class', type=int, default=0,
                         help='Target class for interpretation')

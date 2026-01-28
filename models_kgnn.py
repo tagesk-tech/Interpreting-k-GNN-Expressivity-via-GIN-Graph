@@ -346,10 +346,273 @@ class OneGNN(nn.Module):
         return global_add_pool(h, batch)
 
 
+class TwoGNN(nn.Module):
+    """
+    Standalone 2-GNN model.
+    Operates directly on 2-sets (node pairs) without 1-GNN preprocessing.
+
+    For each pair {u, v}, the initial feature is [x_u || x_v || iso_type]
+    where iso_type indicates if the pair is connected in the original graph.
+    """
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        num_layers: int = 3,
+        dropout: float = 0.5,
+        max_pairs: int = 5000
+    ):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.max_pairs = max_pairs
+
+        # 2-GNN layers (input: concatenated node features + iso type)
+        two_set_input_dim = 2 * input_dim + 1
+        self.layers = nn.ModuleList()
+        self.layers.append(KSetLayer(two_set_input_dim, hidden_dim))
+        for _ in range(num_layers - 1):
+            self.layers.append(KSetLayer(hidden_dim, hidden_dim))
+
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def _build_2sets(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """Build 2-sets directly from node features."""
+        device = x.device
+        all_feats, all_batch, all_src, all_dst = [], [], [], []
+        offset = 0
+
+        for g in batch.unique():
+            mask = (batch == g)
+            nodes = mask.nonzero(as_tuple=True)[0]
+            n = nodes.size(0)
+            if n < 2:
+                continue
+
+            pairs = torch.combinations(torch.arange(n, device=device), r=2)
+
+            # Sample pairs if too many (for large graphs)
+            if self.max_pairs > 0 and pairs.size(0) > self.max_pairs:
+                perm = torch.randperm(pairs.size(0), device=device)[:self.max_pairs]
+                pairs = pairs[perm]
+
+            adj = build_local_adj(edge_index, nodes, n, device)
+
+            feat_u = x[nodes[pairs[:, 0]]]
+            feat_v = x[nodes[pairs[:, 1]]]
+            iso = adj[pairs[:, 0], pairs[:, 1]].unsqueeze(1)
+
+            all_feats.append(torch.cat([feat_u, feat_v, iso], dim=1))
+            all_batch.append(torch.full((pairs.size(0),), g.item(), device=device, dtype=torch.long))
+
+            edges = build_2set_edges(pairs, adj, device)
+            if edges.size(1) > 0:
+                all_src.append(edges[0] + offset)
+                all_dst.append(edges[1] + offset)
+            offset += pairs.size(0)
+
+        if not all_feats:
+            return None, None, None
+
+        final_x = torch.cat(all_feats)
+        final_batch = torch.cat(all_batch)
+        if all_src:
+            final_edges = torch.stack([torch.cat(all_src), torch.cat(all_dst)])
+        else:
+            final_edges = torch.empty((2, 0), dtype=torch.long, device=device)
+
+        return final_x, final_edges, final_batch
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> torch.Tensor:
+        # Build 2-sets directly from node features
+        two_x, two_edges, two_batch = self._build_2sets(x, edge_index, batch)
+
+        if two_x is None:
+            # Fallback for graphs with < 2 nodes
+            num_graphs = batch.max().item() + 1
+            return torch.zeros((num_graphs, self.classifier[-1].out_features), device=x.device)
+
+        h = two_x
+        for layer in self.layers:
+            h = layer(h, two_edges)
+
+        graph_emb = global_add_pool(h, two_batch)
+        return self.classifier(graph_emb)
+
+    def get_embedding(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> torch.Tensor:
+        """Get graph embedding before classification."""
+        two_x, two_edges, two_batch = self._build_2sets(x, edge_index, batch)
+
+        if two_x is None:
+            num_graphs = batch.max().item() + 1
+            return torch.zeros((num_graphs, self.hidden_dim), device=x.device)
+
+        h = two_x
+        for layer in self.layers:
+            h = layer(h, two_edges)
+
+        return global_add_pool(h, two_batch)
+
+
+class ThreeGNN(nn.Module):
+    """
+    Standalone 3-GNN model.
+    Operates directly on 3-sets (node triplets) without 1-GNN preprocessing.
+
+    For each triplet {a, b, c}, the initial feature is [x_a || x_b || x_c || iso_type]
+    where iso_type is a 4-dim one-hot encoding of edge count (0, 1, 2, or 3 edges).
+    """
+    def __init__(
+        self,
+        input_dim: int,
+        hidden_dim: int,
+        output_dim: int,
+        num_layers: int = 3,
+        dropout: float = 0.5,
+        max_triplets: int = 3000
+    ):
+        super().__init__()
+        self.hidden_dim = hidden_dim
+        self.max_triplets = max_triplets
+
+        # 3-GNN layers (input: concatenated node features + iso type one-hot)
+        three_set_input_dim = 3 * input_dim + 4
+        self.layers = nn.ModuleList()
+        self.layers.append(KSetLayer(three_set_input_dim, hidden_dim))
+        for _ in range(num_layers - 1):
+            self.layers.append(KSetLayer(hidden_dim, hidden_dim))
+
+        self.classifier = nn.Sequential(
+            nn.Linear(hidden_dim, hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(p=dropout),
+            nn.Linear(hidden_dim, output_dim)
+        )
+
+    def _build_3sets(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """Build 3-sets directly from node features."""
+        device = x.device
+        all_feats, all_batch, all_src, all_dst = [], [], [], []
+        offset = 0
+
+        for g in batch.unique():
+            mask = (batch == g)
+            nodes = mask.nonzero(as_tuple=True)[0]
+            n = nodes.size(0)
+            if n < 3:
+                continue
+
+            trips = torch.combinations(torch.arange(n, device=device), r=3)
+
+            # Sample triplets if too many (critical for large graphs)
+            if self.max_triplets > 0 and trips.size(0) > self.max_triplets:
+                perm = torch.randperm(trips.size(0), device=device)[:self.max_triplets]
+                trips = trips[perm]
+
+            adj = build_local_adj(edge_index, nodes, n, device)
+
+            fa = x[nodes[trips[:, 0]]]
+            fb = x[nodes[trips[:, 1]]]
+            fc = x[nodes[trips[:, 2]]]
+
+            # Iso type: count edges (0, 1, 2, or 3)
+            ec = (adj[trips[:, 0], trips[:, 1]] +
+                  adj[trips[:, 1], trips[:, 2]] +
+                  adj[trips[:, 0], trips[:, 2]]).long()
+            iso = torch.zeros((trips.size(0), 4), device=device)
+            iso.scatter_(1, ec.unsqueeze(1), 1.0)
+
+            all_feats.append(torch.cat([fa, fb, fc, iso], dim=1))
+            all_batch.append(torch.full((trips.size(0),), g.item(), device=device, dtype=torch.long))
+
+            edges = build_3set_edges(trips, adj, device)
+            if edges.size(1) > 0:
+                all_src.append(edges[0] + offset)
+                all_dst.append(edges[1] + offset)
+            offset += trips.size(0)
+
+        if not all_feats:
+            return None, None, None
+
+        final_x = torch.cat(all_feats)
+        final_batch = torch.cat(all_batch)
+        if all_src:
+            final_edges = torch.stack([torch.cat(all_src), torch.cat(all_dst)])
+        else:
+            final_edges = torch.empty((2, 0), dtype=torch.long, device=device)
+
+        return final_x, final_edges, final_batch
+
+    def forward(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> torch.Tensor:
+        # Build 3-sets directly from node features
+        three_x, three_edges, three_batch = self._build_3sets(x, edge_index, batch)
+
+        if three_x is None:
+            # Fallback for graphs with < 3 nodes
+            num_graphs = batch.max().item() + 1
+            return torch.zeros((num_graphs, self.classifier[-1].out_features), device=x.device)
+
+        h = three_x
+        for layer in self.layers:
+            h = layer(h, three_edges)
+
+        graph_emb = global_add_pool(h, three_batch)
+        return self.classifier(graph_emb)
+
+    def get_embedding(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> torch.Tensor:
+        """Get graph embedding before classification."""
+        three_x, three_edges, three_batch = self._build_3sets(x, edge_index, batch)
+
+        if three_x is None:
+            num_graphs = batch.max().item() + 1
+            return torch.zeros((num_graphs, self.hidden_dim), device=x.device)
+
+        h = three_x
+        for layer in self.layers:
+            h = layer(h, three_edges)
+
+        return global_add_pool(h, three_batch)
+
+
 class Hierarchical12GNN(nn.Module):
     """
     Hierarchical 1-2-GNN.
-    
+
     First runs 1-GNN to get node embeddings, then uses those embeddings
     to initialize 2-GNN features. Final representation concatenates
     pooled outputs from both levels.
@@ -681,6 +944,8 @@ def get_model(
     """
     models = {
         '1gnn': lambda: OneGNN(input_dim, hidden_dim, output_dim, **kwargs),
+        '2gnn': lambda: TwoGNN(input_dim, hidden_dim, output_dim, **kwargs),
+        '3gnn': lambda: ThreeGNN(input_dim, hidden_dim, output_dim, **kwargs),
         '12gnn': lambda: Hierarchical12GNN(input_dim, hidden_dim, output_dim, **kwargs),
         '123gnn': lambda: Hierarchical123GNN(input_dim, hidden_dim, output_dim, **kwargs),
     }

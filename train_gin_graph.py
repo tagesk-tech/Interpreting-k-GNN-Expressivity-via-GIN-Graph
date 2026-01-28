@@ -198,6 +198,43 @@ class GINGraphTrainer:
 
         return self.config.degree_lambda * degree_loss
 
+    def _compute_connectivity_loss(self, fake_adj: torch.Tensor) -> torch.Tensor:
+        """
+        Compute connectivity loss for standalone 2-GNN/3-GNN models.
+
+        These models need sufficient edge density for meaningful k-set construction.
+        This loss encourages a minimum average degree across the graph.
+
+        Only applied when model_type is '2gnn' or '3gnn'.
+
+        Args:
+            fake_adj: Generated adjacency matrices [batch, N, N]
+
+        Returns:
+            Scalar connectivity loss (0 for non-standalone models)
+        """
+        if self.model_type not in ('2gnn', '3gnn'):
+            return torch.tensor(0.0, device=self.device)
+
+        # Total edges per graph (adj is symmetric, so divide by 2)
+        total_edges = fake_adj.sum(dim=(-1, -2)) / 2  # [batch]
+        num_nodes = fake_adj.size(1)
+
+        # Average degree = 2 * edges / nodes
+        avg_degree = 2 * total_edges / num_nodes  # [batch]
+
+        # For 2-GNN: need avg degree >= 2 for meaningful pair neighborhoods
+        # For 3-GNN: need avg degree >= 3 for meaningful triplet neighborhoods
+        min_avg_degree = 3.0 if self.model_type == '3gnn' else 2.0
+
+        # Soft penalty when average degree is below minimum
+        # Using smooth L1-style loss for stability
+        degree_deficit = torch.clamp(min_avg_degree - avg_degree, min=0)
+        connectivity_loss = degree_deficit.mean()
+
+        # Scale factor (tuned to encourage edges without overwhelming GAN/GNN losses)
+        return 0.5 * connectivity_loss
+
     def train_discriminator_step(
         self,
         real_x: torch.Tensor,
@@ -259,9 +296,13 @@ class GINGraphTrainer:
         # Degree regularization loss (adaptive based on dataset variance)
         l_degree = self._compute_degree_loss(fake_adj)
 
+        # Connectivity loss for standalone 2-GNN/3-GNN (0 for other models)
+        l_connectivity = self._compute_connectivity_loss(fake_adj)
+
         # Combined loss with dynamic weighting
         # Degree loss is always active to enforce structure
-        total_loss = (1 - current_lambda) * l_gan + current_lambda * l_gnn + l_degree
+        # Connectivity loss only active for standalone 2gnn/3gnn
+        total_loss = (1 - current_lambda) * l_gan + current_lambda * l_gnn + l_degree + l_connectivity
 
         total_loss.backward()
         self.optimizer_G.step()
@@ -471,7 +512,7 @@ def main():
                         choices=AVAILABLE_DATASETS,
                         help=f'Dataset to use ({", ".join(AVAILABLE_DATASETS)})')
     parser.add_argument('--model', type=str, default='1gnn',
-                        choices=['1gnn', '12gnn', '123gnn'],
+                        choices=['1gnn', '2gnn', '3gnn', '12gnn', '123gnn'],
                         help='k-GNN model to explain')
     parser.add_argument('--target_class', type=int, default=0,
                         help='Target class for explanation generation')
