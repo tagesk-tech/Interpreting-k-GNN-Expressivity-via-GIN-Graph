@@ -205,7 +205,8 @@ def main():
         print("All tests passed! Project is ready to use.")
         print("\nNext steps:")
         print("  1. Train k-GNN models: python train_kgnn.py --all")
-        print("  2. Run full experiment: python run_experiment.py")
+        print("  2. Train GIN-Graph: python train_gin_graph.py --model 1gnn --target_class 0")
+        print("  3. Analyze results: python research.py gin --model 1gnn --target_class 0")
     else:
         print("Some tests failed. Please check the errors above.")
         sys.exit(1)

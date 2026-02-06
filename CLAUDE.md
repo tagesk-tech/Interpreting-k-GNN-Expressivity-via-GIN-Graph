@@ -37,15 +37,7 @@ python train_kgnn.py --dataset proteins --model 1gnn --epochs 100
 # Train GIN-Graph generators (requires pre-trained k-GNN)
 # Models + intermediate samples → ./gin_checkpoints/, final analysis → ./results/
 python train_gin_graph.py --dataset mutag --model 1gnn --target_class 0 --epochs 300
-python train_gin_graph.py --dataset dd --model 1gnn --target_class 0 --epochs 300
-
-# Full experiment pipeline (default: MUTAG)
-python run_experiment.py                              # Run on MUTAG (default)
-python run_experiment.py --dataset dd                 # Run on DD dataset
-python run_experiment.py --dataset proteins           # Run on PROTEINS dataset
-python run_experiment.py --skip_kgnn_training         # Use existing checkpoints
-python run_experiment.py --models 1gnn 123gnn         # Specific models only
-python run_experiment.py --dataset dd --models 1gnn   # Combine options
+python train_gin_graph.py --dataset proteins --model 1gnn --target_class 0 --epochs 300
 ```
 
 ### Analysis (no training)
@@ -73,9 +65,11 @@ python research.py gin --model 123gnn --dataset mutag --target_class 0 --num_sam
 
 ## Architecture
 
-### Pipeline Flow
+### Pipeline Flow (3-step checkpoint workflow)
 ```
-Dataset (MUTAG/DD/PROTEINS) → k-GNN Training → GIN-Graph Generation → Explanation Evaluation → Visualization
+1. train_kgnn.py      → checkpoints/{dataset}_{model}.pt
+2. train_gin_graph.py  → gin_checkpoints/{dataset}/{model}_class{N}.pt
+3. research.py         → results/{dataset}/{model}_class{N}/ (figures, reports)
 ```
 
 ### Core Components
@@ -150,6 +144,5 @@ All hyperparameters are centralized in `config.py`:
 ```
 - `./checkpoints/`: Trained k-GNN models (e.g., `mutag_1gnn.pt`)
 - `./gin_checkpoints/{dataset}/`: GIN-Graph models per dataset (e.g., `gin_checkpoints/mutag/1gnn_class0.pt`); `training/` subfolder holds intermediate checkpoints (`ckpt_*.pt`) and samples (`samples_*.npz`)
-- `./results/experiment_{dataset}_TIMESTAMP/`: Full pipeline experiment reports
 - `./results/{dataset}/{model}/`: k-GNN evaluation from `research.py gnn` (report.json)
 - `./results/{dataset}/{model}_class{N}/`: GIN-Graph analysis from `research.py gin` (figures/, explanations.npz, report.json)

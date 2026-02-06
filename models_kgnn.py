@@ -1016,6 +1016,7 @@ def get_model(
     Args:
         model_name: One of '1gnn', '12gnn', '123gnn'
         input_dim: Input feature dimension
+    
         hidden_dim: Hidden layer dimension
         output_dim: Number of output classes
         **kwargs: Additional model-specific arguments

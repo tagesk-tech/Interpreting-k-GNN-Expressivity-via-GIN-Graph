@@ -932,7 +932,8 @@ def main():
         print()
         print("Next steps:")
         print("  1. Train k-GNN models: python train_kgnn.py --all --epochs 100")
-        print("  2. Run full experiment: python run_experiment.py")
+        print("  2. Train GIN-Graph: python train_gin_graph.py --model 1gnn --target_class 0")
+        print("  3. Analyze results: python research.py gin --model 1gnn --target_class 0")
         return 0
     else:
         print("❌ Some tests failed. Please fix the errors above before training.")
