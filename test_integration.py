@@ -100,7 +100,7 @@ def test_kgnn_forward_pass():
     device = torch.device('cpu')
     
     results = []
-    for model_name in ['1gnn', '12gnn', '123gnn']:
+    for model_name in ['1gnn', '2gnn', '3gnn', '12gnn', '123gnn']:
         model = get_model(
             model_name,
             input_dim=dataset.num_node_features,
@@ -108,7 +108,7 @@ def test_kgnn_forward_pass():
             output_dim=dataset.num_classes,
             dropout=0.0
         ).to(device)
-        
+
         # Forward pass
         out = model(batch.x, batch.edge_index, batch.batch)
         
@@ -145,7 +145,7 @@ def test_kgnn_short_training():
     
     results = []
     
-    for model_name in ['1gnn', '12gnn', '123gnn']:
+    for model_name in ['1gnn', '2gnn', '3gnn', '12gnn', '123gnn']:
         model = get_model(
             model_name,
             input_dim=dataset.num_node_features,
@@ -153,7 +153,7 @@ def test_kgnn_short_training():
             output_dim=dataset.num_classes,
             dropout=0.0
         ).to(device)
-        
+
         optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
         criterion = nn.CrossEntropyLoss()
         
@@ -282,7 +282,7 @@ def test_model_wrapper():
     
     results = []
     
-    for model_name in ['1gnn', '12gnn', '123gnn']:
+    for model_name in ['1gnn', '2gnn', '3gnn', '12gnn', '123gnn']:
         # Create base model
         base_model = get_model(
             model_name,
@@ -491,6 +491,80 @@ def test_gin_graph_trainer():
 
 
 # ============================================================================
+# Test 8b: GIN-Graph Trainer with 2-GNN
+# ============================================================================
+
+def test_gin_graph_trainer_2gnn():
+    """Test GIN-Graph trainer with a 2-GNN model."""
+    from data_loader import load_mutag, get_class_statistics, get_class_subset
+    from models_kgnn import get_model
+    from train_gin_graph import GINGraphTrainer
+    from config import GINGraphConfig, DataConfig
+
+    device = torch.device('cpu')
+
+    # Load data
+    dataset = load_mutag('./data')
+    class_stats = get_class_statistics(dataset)
+    for label in [0, 1]:
+        nodes = [d.num_nodes for d in dataset if d.y.item() == label]
+        class_stats[label]['avg_nodes'] = np.mean(nodes)
+
+    # Create a 2-GNN model
+    pretrained_gnn = get_model(
+        '2gnn',
+        input_dim=7,
+        hidden_dim=32,
+        output_dim=2,
+        dropout=0.0
+    ).to(device)
+
+    # Create trainer config with minimal settings
+    gin_config = GINGraphConfig(
+        latent_dim=16,
+        hidden_dim=32,
+        learning_rate=0.001,
+        epochs=2,
+        batch_size=16,
+        n_critic=1,
+        gp_lambda=10.0
+    )
+
+    data_config = DataConfig(max_nodes=28, num_node_features=7)
+
+    # Create trainer
+    trainer = GINGraphTrainer(
+        pretrained_gnn=pretrained_gnn,
+        model_type='2gnn',
+        target_class=0,
+        config=gin_config,
+        data_config=data_config,
+        device=device,
+        class_stats=class_stats
+    )
+
+    # Get target class subset
+    target_dataset = get_class_subset(dataset, 0)
+
+    # Train for 2 epochs
+    trainer.train(target_dataset, epochs=2, verbose=False, log_interval=1)
+
+    # Verify history was recorded
+    assert len(trainer.history['d_loss']) > 0, "No discriminator loss recorded"
+    assert len(trainer.history['g_loss']) > 0, "No generator loss recorded"
+    assert len(trainer.history['lambda']) > 0, "No lambda recorded"
+
+    # Generate explanations
+    adjs, xs, metrics = trainer.generate_explanations(num_samples=5, temperature=0.1)
+
+    assert adjs.shape[0] == 5, f"Wrong number of explanations: {adjs.shape[0]}"
+    assert xs.shape[0] == 5
+    assert len(metrics) == 5
+
+    return f"2gnn: generated 5 explanations, d_loss={trainer.history['d_loss'][-1]:.4f}"
+
+
+# ============================================================================
 # Test 9: Full Mini Pipeline
 # ============================================================================
 
@@ -572,6 +646,90 @@ def test_full_mini_pipeline():
     assert 'mean_validation_score' in summary
     
     return f"kGNN acc={kgnn_acc:.2f}, gen={summary['total_generated']}, val={summary['mean_validation_score']:.3f}"
+
+
+# ============================================================================
+# Test 9b: Full Mini Pipeline with 2-GNN
+# ============================================================================
+
+def test_full_mini_pipeline_2gnn():
+    """Test the complete pipeline with 2-GNN: load → train kGNN → train GIN-Graph → evaluate."""
+    from data_loader import load_mutag, create_data_loaders, get_class_statistics, get_class_subset
+    from models_kgnn import get_model
+    from train_gin_graph import GINGraphTrainer
+    from config import GINGraphConfig, DataConfig
+    from metrics import ExplanationEvaluator
+
+    device = torch.device('cpu')
+
+    # Step 1: Load data
+    dataset = load_mutag('./data')
+    train_loader, test_loader, _, _ = create_data_loaders(dataset, batch_size=32, seed=42)
+
+    class_stats = get_class_statistics(dataset)
+    for label in [0, 1]:
+        nodes = [d.num_nodes for d in dataset if d.y.item() == label]
+        class_stats[label]['avg_nodes'] = np.mean(nodes)
+
+    # Step 2: Train 2-GNN (just 1 epoch)
+    model = get_model('2gnn', input_dim=7, hidden_dim=32, output_dim=2, dropout=0.0).to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    criterion = nn.CrossEntropyLoss()
+
+    model.train()
+    for batch in train_loader:
+        batch = batch.to(device)
+        optimizer.zero_grad()
+        out = model(batch.x, batch.edge_index, batch.batch)
+        loss = criterion(out, batch.y)
+        loss.backward()
+        optimizer.step()
+
+    # Evaluate 2-GNN
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for batch in test_loader:
+            batch = batch.to(device)
+            out = model(batch.x, batch.edge_index, batch.batch)
+            pred = out.argmax(dim=1)
+            correct += (pred == batch.y).sum().item()
+            total += batch.y.size(0)
+    kgnn_acc = correct / total
+
+    # Step 3: Train GIN-Graph (just 1 epoch)
+    gin_config = GINGraphConfig(
+        latent_dim=16,
+        hidden_dim=32,
+        epochs=1,
+        batch_size=16
+    )
+    data_config = DataConfig(max_nodes=28, num_node_features=7)
+
+    trainer = GINGraphTrainer(
+        pretrained_gnn=model,
+        model_type='2gnn',
+        target_class=0,
+        config=gin_config,
+        data_config=data_config,
+        device=device,
+        class_stats=class_stats
+    )
+
+    target_dataset = get_class_subset(dataset, 0)
+    trainer.train(target_dataset, epochs=1, verbose=False)
+
+    # Step 4: Generate and evaluate explanations
+    adjs, xs, metrics = trainer.generate_explanations(num_samples=10)
+
+    summary = trainer.evaluator.compute_summary_stats(metrics)
+
+    # Verify everything worked
+    assert summary['total_generated'] == 10
+    assert 'mean_validation_score' in summary
+
+    return f"2gnn: acc={kgnn_acc:.2f}, gen={summary['total_generated']}, val={summary['mean_validation_score']:.3f}"
 
 
 # ============================================================================
@@ -886,8 +1044,10 @@ def main():
         (test_model_wrapper, "Model Wrapper"),
         (test_dynamic_weighting, "Dynamic Weighting"),
         (test_metrics, "Metrics & Evaluation"),
-        (test_gin_graph_trainer, "GIN-Graph Trainer"),
-        (test_full_mini_pipeline, "Full Mini Pipeline"),
+        (test_gin_graph_trainer, "GIN-Graph Trainer (1-GNN)"),
+        (test_gin_graph_trainer_2gnn, "GIN-Graph Trainer (2-GNN)"),
+        (test_full_mini_pipeline, "Full Mini Pipeline (1-GNN)"),
+        (test_full_mini_pipeline_2gnn, "Full Mini Pipeline (2-GNN)"),
         (test_config, "Config Module"),
         (test_visualization, "Visualization"),
         (test_kset_building, "k-Set Building"),

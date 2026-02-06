@@ -1,7 +1,7 @@
 stuff to do:
-1. Start interpreting the results produced from the GIN graph
-2. systematicaly explore the 3 datasets and train them on the different models
-3. optimize code further to run smoother
+1. Run experiments across datasets
+2. analyze and compare the generated explanations
+3. draw conclusions about wether higher-order k-GNNs produce better interpretations
 
 
 # k-GNN Interpretation with GIN-Graph
@@ -17,6 +17,8 @@ We compare:
 - **1-2-GNN**: Hierarchical model using pairs of nodes
 - **1-2-3-GNN**: Full hierarchical model using triplets
 
+> **Note on standalone 2-GNN / 3-GNN**: These models are available for k-GNN training but are **on standby** for GIN-Graph explanation generation. The hierarchical variants (1-2-GNN, 1-2-3-GNN) are recommended because they include a 1-GNN component that provides differentiable gradient flow through the adjacency matrix during generation. Standalone 2-GNN/3-GNN rely entirely on k-set construction which is non-differentiable through the generator, causing GIN-Graph training to stagnate.
+
 ## Project Structure
 
 ```
@@ -25,7 +27,7 @@ kgnn_interpretation/
 ├── data_loader.py         # MUTAG dataset loading utilities
 ├── models_kgnn.py         # k-GNN model implementationspy
 ├── gin_generator.py       # GIN-Graph generator and discriminator
-├── model_wrapper.py       # Wrapper for dense inputs
+├── model_wrapper.py       # Dense differentiable wrapper for GIN-Graph
 ├── dynamic_weighting.py   # Dynamic loss weighting scheme
 ├── metrics.py             # Evaluation metrics for explanations
 ├── visualize.py           # Visualization utilities
@@ -112,6 +114,19 @@ Key innovations:
 - **Dynamic loss weighting**: Gradually shifts from realism (GAN loss) to class-specificity (GNN loss)
 - **Validation score**: Combines prediction probability, embedding similarity, and structural validity
 
+### Dense Wrapper for Differentiable GIN-Graph Training
+
+A key challenge in applying GIN-Graph to higher-order k-GNNs is maintaining gradient flow from the pretrained classifier back to the generator. The `DenseToSparseWrapper` in `model_wrapper.py` provides:
+
+| Component | Approach | Gradient flow |
+|-----------|----------|--------------|
+| **1-GNN** | Dense batched message passing: `σ(H·W1 + A·H·W2)` | Full (through adj) |
+| **2-GNN** | Dense pair features with einsum aggregation | Full (through adj) |
+| **3-GNN** | Sparse k-set construction with soft iso-types | Partial (features + soft iso) |
+
+- **1-GNN + 2-GNN**: Fully differentiable — the continuous adjacency matrix from the generator flows through all operations, so the GNN guidance loss provides gradient for both node features and graph structure.
+- **3-GNN**: Uses optimized sparse construction (`torch.no_grad()` for structure, soft iso-types for partial gradient). Full dense 3-set tensors `[B,N,N,N,D]` would exceed memory for most graph sizes.
+
 ## Evaluation Metrics
 
 ### Validation Score
@@ -155,20 +170,40 @@ Edit `config.py` to adjust:
 
 ## Output Files
 
-After running experiments:
+The project uses a 3-stage directory layout matching the pipeline:
 
 ```
-results/experiment_TIMESTAMP/
-├── experiment_report.json        # Full results summary
-├── gin_graph_1gnn.pt            # Generator checkpoints
-├── gin_graph_12gnn.pt
-├── gin_graph_123gnn.pt
+checkpoints/                          ← Stage 1: Train k-GNNs
+├── mutag_1gnn.pt
+├── mutag_12gnn.pt
+└── mutag_123gnn.pt
+
+gin_checkpoints/                      ← Stage 2: Train GIN-Graph generators
+├── mutag_1gnn_class0.pt              # Final GIN-Graph models (clean top level)
+├── mutag_12gnn_class0.pt
+├── mutag_123gnn_class0.pt
+└── training/                         # Intermediate artifacts
+    ├── ckpt_mutag_12gnn_epoch0.pt
+    ├── ckpt_mutag_12gnn_epoch20.pt
+    ├── samples_mutag_12gnn_epoch0.npz    # For standalone viz
+    └── samples_mutag_12gnn_epoch20.npz
+
+results/experiment_TIMESTAMP/         ← Stage 3: Analyse results
+├── experiment_report.json
+├── explanations_mutag_1gnn_class0.npz   # Best explanations
 └── figures/
-    ├── explanations_1gnn.png    # Best explanations per model
-    ├── training_1gnn.png        # Training curves
-    ├── metrics_1gnn.png         # Metric distributions
-    ├── model_comparison.png     # Cross-model comparison
-    └── atom_legend.png          # Atom type legend
+    ├── explanations_1gnn.png
+    ├── training_1gnn.png
+    ├── metrics_1gnn.png
+    ├── model_comparison.png
+    └── mutag_legend.png
+```
+
+Intermediate `.npz` sample files can be visualized offline with `visualize_standalone.py`
+(no torch required):
+
+```bash
+python visualize_standalone.py gin_checkpoints/training/samples_mutag_12gnn_epoch100.npz -o fig.png
 ```
 
 ## References

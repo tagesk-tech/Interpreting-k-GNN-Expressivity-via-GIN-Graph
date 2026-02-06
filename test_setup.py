@@ -103,7 +103,7 @@ def test_model_creation():
     try:
         from models_kgnn import get_model, count_parameters
         
-        for model_name in ['1gnn', '12gnn', '123gnn']:
+        for model_name in ['1gnn', '2gnn', '3gnn', '12gnn', '123gnn']:
             model = get_model(model_name, input_dim=7, hidden_dim=64, output_dim=2)
             params = count_parameters(model)
             print(f"  ✓ {model_name.upper()}: {params:,} parameters")

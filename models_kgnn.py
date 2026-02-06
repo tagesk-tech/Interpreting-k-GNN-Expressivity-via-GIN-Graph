@@ -17,6 +17,64 @@ import torch
 import torch.nn as nn
 from torch_geometric.nn import MessagePassing, global_add_pool
 from typing import Optional, Tuple, Dict
+from math import comb
+
+
+# =============================================================================
+# Sampling & Lookup Helpers (Performance-Critical for Large Graphs)
+# =============================================================================
+
+def _sample_ksets(n: int, k: int, max_sets: int, device: torch.device) -> torch.Tensor:
+    """Sample unique k-sets from n nodes without materializing all C(n,k) combinations.
+
+    For large graphs, avoids the O(n^k) memory cost of torch.combinations().
+    For DD with n=500: avoids allocating 20.7M triplets (497MB) when only 3000 needed.
+
+    Returns:
+        Tensor of shape [num_sets, k] with sorted local indices per row.
+    """
+    total = comb(n, k)
+    if max_sets <= 0 or total <= max_sets:
+        return torch.combinations(torch.arange(n, device=device), r=k)
+
+    # Direct random sampling - O(max_sets) memory instead of O(n^k)
+    oversample = int(max_sets * 2.5)
+    while True:
+        indices = torch.randint(0, n, (oversample, k), device=device)
+        indices = indices.sort(dim=1).values
+        # Remove rows with duplicate elements (sorted, so check adjacent columns)
+        if k == 2:
+            valid = indices[:, 0] != indices[:, 1]
+        else:
+            valid = torch.all(indices[:, 1:] != indices[:, :-1], dim=1)
+        indices = indices[valid]
+        indices = indices.unique(dim=0)
+        if indices.size(0) >= max_sets:
+            perm = torch.randperm(indices.size(0), device=device)[:max_sets]
+            return indices[perm]
+        oversample *= 2
+
+
+def _searchsorted_lookup(
+    sorted_keys: torch.Tensor,
+    sort_perm: torch.Tensor,
+    query: torch.Tensor
+) -> torch.Tensor:
+    """O(log n) index lookup using sorted keys + searchsorted.
+
+    Replaces dense lookup tables (O(n^2) or O(n^3) memory) with binary search.
+    For 3-set edges on DD: saves ~1GB (n^3=125M entries -> num_triplets entries).
+
+    Returns tensor of original indices, -1 for missing keys.
+    """
+    if sorted_keys.numel() == 0:
+        return torch.full_like(query, -1)
+    pos = torch.searchsorted(sorted_keys, query)
+    pos = pos.clamp(max=sorted_keys.size(0) - 1)
+    valid = sorted_keys[pos] == query
+    result = torch.full_like(query, -1)
+    result[valid] = sort_perm[pos[valid]]
+    return result
 
 
 # =============================================================================
@@ -123,12 +181,10 @@ def build_2set_edges(
     u = pairs[:, 0]  # [num_pairs]
     v = pairs[:, 1]  # [num_pairs]
 
-    # Create lookup table: canonical_idx -> pair_index
-    # For pair {a, b} with a < b: canonical_idx = a * n + b
-    # pairs are already sorted (from torch.combinations), so pairs[:,0] < pairs[:,1]
+    # Sorted canonical index for O(log n) lookup instead of O(n^2) dense table
+    # pairs are sorted within each row (pairs[:,0] < pairs[:,1])
     canonical_idx = u * n + v
-    lookup = torch.full((n * n,), -1, dtype=torch.long, device=device)
-    lookup[canonical_idx] = torch.arange(num_pairs, device=device)
+    sorted_canonical, sort_perm = canonical_idx.sort()
 
     # For each pair (u, v), find all w where:
     # - w is neighbor of v (adj[v, w] == 1)
@@ -163,7 +219,7 @@ def build_2set_edges(
     target_min = torch.minimum(v_vals, w_vals)
     target_max = torch.maximum(v_vals, w_vals)
     target_canonical = target_min * n + target_max
-    target_pair_idx = lookup[target_canonical]
+    target_pair_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
     valid_mask = target_pair_idx >= 0
     if valid_mask.any():
         all_src.append(pair_indices[valid_mask])
@@ -174,7 +230,7 @@ def build_2set_edges(
     target_min = torch.minimum(u_vals, w_vals)
     target_max = torch.maximum(u_vals, w_vals)
     target_canonical = target_min * n + target_max
-    target_pair_idx = lookup[target_canonical]
+    target_pair_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
     valid_mask = target_pair_idx >= 0
     if valid_mask.any():
         all_src.append(pair_indices[valid_mask])
@@ -206,12 +262,11 @@ def build_3set_edges(
     b = triplets[:, 1]  # [num_triplets]
     c = triplets[:, 2]  # [num_triplets]
 
-    # Create lookup table: canonical_idx -> triplet_index
-    # For triplet {x, y, z} with x < y < z: canonical_idx = x * n^2 + y * n + z
-    # triplets are already sorted (from torch.combinations)
+    # Sorted canonical index for O(log n) lookup instead of O(n^3) dense table
+    # For DD (n=500): saves ~1GB (125M entries -> num_triplets entries)
+    # triplets are sorted within each row (a < b < c)
     canonical_idx = a * (n * n) + b * n + c
-    lookup = torch.full((n * n * n,), -1, dtype=torch.long, device=device)
-    lookup[canonical_idx] = torch.arange(num_triplets, device=device)
+    sorted_canonical, sort_perm = canonical_idx.sort()
 
     all_src = []
     all_dst = []
@@ -235,7 +290,7 @@ def build_3set_edges(
         target_canonical = (target_sorted[:, 0] * (n * n) +
                            target_sorted[:, 1] * n +
                            target_sorted[:, 2])
-        target_trip_idx = lookup[target_canonical]
+        target_trip_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
         valid = target_trip_idx >= 0
         all_src.append(trip_idx[valid])
         all_dst.append(target_trip_idx[valid])
@@ -256,7 +311,7 @@ def build_3set_edges(
         target_canonical = (target_sorted[:, 0] * (n * n) +
                            target_sorted[:, 1] * n +
                            target_sorted[:, 2])
-        target_trip_idx = lookup[target_canonical]
+        target_trip_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
         valid = target_trip_idx >= 0
         all_src.append(trip_idx[valid])
         all_dst.append(target_trip_idx[valid])
@@ -277,7 +332,7 @@ def build_3set_edges(
         target_canonical = (target_sorted[:, 0] * (n * n) +
                            target_sorted[:, 1] * n +
                            target_sorted[:, 2])
-        target_trip_idx = lookup[target_canonical]
+        target_trip_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
         valid = target_trip_idx >= 0
         all_src.append(trip_idx[valid])
         all_dst.append(target_trip_idx[valid])
@@ -399,12 +454,7 @@ class TwoGNN(nn.Module):
             if n < 2:
                 continue
 
-            pairs = torch.combinations(torch.arange(n, device=device), r=2)
-
-            # Sample pairs if too many (for large graphs)
-            if self.max_pairs > 0 and pairs.size(0) > self.max_pairs:
-                perm = torch.randperm(pairs.size(0), device=device)[:self.max_pairs]
-                pairs = pairs[perm]
+            pairs = _sample_ksets(n, 2, self.max_pairs, device)
 
             adj = build_local_adj(edge_index, nodes, n, device)
 
@@ -527,12 +577,7 @@ class ThreeGNN(nn.Module):
             if n < 3:
                 continue
 
-            trips = torch.combinations(torch.arange(n, device=device), r=3)
-
-            # Sample triplets if too many (critical for large graphs)
-            if self.max_triplets > 0 and trips.size(0) > self.max_triplets:
-                perm = torch.randperm(trips.size(0), device=device)[:self.max_triplets]
-                trips = trips[perm]
+            trips = _sample_ksets(n, 3, self.max_triplets, device)
 
             adj = build_local_adj(edge_index, nodes, n, device)
 
@@ -675,39 +720,34 @@ class Hierarchical12GNN(nn.Module):
             if n < 2:
                 continue
 
-            pairs = torch.combinations(torch.arange(n, device=device), r=2)
-
-            # Sample pairs if too many (for large graphs like PROTEINS)
-            if max_pairs > 0 and pairs.size(0) > max_pairs:
-                perm = torch.randperm(pairs.size(0), device=device)[:max_pairs]
-                pairs = pairs[perm]
+            pairs = _sample_ksets(n, 2, max_pairs, device)
             adj = build_local_adj(edge_index, nodes, n, device)
-            
+
             feat_u = h[nodes[pairs[:, 0]]]
             feat_v = h[nodes[pairs[:, 1]]]
             iso = adj[pairs[:, 0], pairs[:, 1]].unsqueeze(1)
-            
+
             all_feats.append(torch.cat([feat_u, feat_v, iso], dim=1))
             all_batch.append(torch.full((pairs.size(0),), g.item(), device=device, dtype=torch.long))
-            
+
             edges = build_2set_edges(pairs, adj, device)
             if edges.size(1) > 0:
                 all_src.append(edges[0] + offset)
                 all_dst.append(edges[1] + offset)
             offset += pairs.size(0)
-        
+
         if not all_feats:
             return None, None, None
-        
+
         final_x = torch.cat(all_feats)
         final_batch = torch.cat(all_batch)
         if all_src:
             final_edges = torch.stack([torch.cat(all_src), torch.cat(all_dst)])
         else:
             final_edges = torch.empty((2, 0), dtype=torch.long, device=device)
-        
+
         return final_x, final_edges, final_batch
-    
+
     def forward(
         self,
         x: torch.Tensor,
@@ -719,7 +759,7 @@ class Hierarchical12GNN(nn.Module):
         for layer in self.gnn1_layers:
             h = layer(h, edge_index)
         graph_emb_1 = global_add_pool(h, batch)
-        
+
         # 2-GNN using 1-GNN embeddings
         two_x, two_edges, two_batch = self._build_2sets(h, edge_index, batch)
         
@@ -803,33 +843,28 @@ class Hierarchical123GNN(nn.Module):
             if n < 2:
                 continue
 
-            pairs = torch.combinations(torch.arange(n, device=device), r=2)
+            pairs = _sample_ksets(n, 2, max_pairs, device)
             adj = build_local_adj(edge_index, nodes, n, device)
 
-            # Sample pairs if too many (for large graphs like PROTEINS)
-            if max_pairs > 0 and pairs.size(0) > max_pairs:
-                perm = torch.randperm(pairs.size(0), device=device)[:max_pairs]
-                pairs = pairs[perm]
-            
             feat_u = h[nodes[pairs[:, 0]]]
             feat_v = h[nodes[pairs[:, 1]]]
             iso = adj[pairs[:, 0], pairs[:, 1]].unsqueeze(1)
-            
+
             all_feats.append(torch.cat([feat_u, feat_v, iso], dim=1))
             all_batch.append(torch.full((pairs.size(0),), g.item(), device=device, dtype=torch.long))
-            
+
             edges = build_2set_edges(pairs, adj, device)
             if edges.size(1) > 0:
                 all_src.append(edges[0] + offset)
                 all_dst.append(edges[1] + offset)
             offset += pairs.size(0)
-        
+
         if not all_feats:
             return None, None, None
         return (torch.cat(all_feats),
                 torch.stack([torch.cat(all_src), torch.cat(all_dst)]) if all_src else torch.empty((2, 0), dtype=torch.long, device=device),
                 torch.cat(all_batch))
-    
+
     def _build_3sets(
         self,
         h: torch.Tensor,
@@ -848,13 +883,8 @@ class Hierarchical123GNN(nn.Module):
             if n < 3:
                 continue
 
-            trips = torch.combinations(torch.arange(n, device=device), r=3)
+            trips = _sample_ksets(n, 3, max_triplets, device)
             adj = build_local_adj(edge_index, nodes, n, device)
-
-            # Sample triplets if too many (critical for large graphs)
-            if max_triplets > 0 and trips.size(0) > max_triplets:
-                perm = torch.randperm(trips.size(0), device=device)[:max_triplets]
-                trips = trips[perm]
             
             fa = h[nodes[trips[:, 0]]]
             fb = h[nodes[trips[:, 1]]]

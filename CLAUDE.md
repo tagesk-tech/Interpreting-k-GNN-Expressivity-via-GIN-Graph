@@ -35,6 +35,7 @@ python train_kgnn.py --dataset dd --model 1gnn --epochs 100
 python train_kgnn.py --dataset proteins --model 1gnn --epochs 100
 
 # Train GIN-Graph generators (requires pre-trained k-GNN)
+# Models + intermediate samples → ./gin_checkpoints/, final analysis → ./results/
 python train_gin_graph.py --dataset mutag --model 1gnn --target_class 0 --epochs 300
 python train_gin_graph.py --dataset dd --model 1gnn --target_class 0 --epochs 300
 
@@ -45,6 +46,18 @@ python run_experiment.py --dataset proteins           # Run on PROTEINS dataset
 python run_experiment.py --skip_kgnn_training         # Use existing checkpoints
 python run_experiment.py --models 1gnn 123gnn         # Specific models only
 python run_experiment.py --dataset dd --models 1gnn   # Combine options
+```
+
+### Analysis (no training)
+```bash
+# Evaluate a k-GNN checkpoint on the test set
+python research.py gnn --model 1gnn --dataset mutag
+
+# Generate explanations from existing GIN-Graph checkpoint
+python research.py gin --model 1gnn --dataset mutag --target_class 0
+python research.py gin --model 123gnn --dataset mutag --target_class 0 --num_samples 200
+
+# Outputs go to results/{dataset}/{model}/ or results/{dataset}/{model}_class{N}/
 ```
 
 ### Supported Datasets
@@ -68,7 +81,8 @@ Dataset (MUTAG/DD/PROTEINS) → k-GNN Training → GIN-Graph Generation → Expl
 **Models (`models_kgnn.py`)**: k-GNN implementations using k-set message passing
 - `OneGNNLayer`: Standard node-level message passing
 - `KSetLayer`: Generic layer for 2-GNN (node pairs) and 3-GNN (triplets)
-- Hierarchical models: 1-GNN, 2-GNN, 3-GNN, 1-2-GNN, 1-3-GNN, 1-2-3-GNN
+- Hierarchical models (recommended for GIN-Graph): 1-GNN, 1-2-GNN, 1-2-3-GNN
+- Standalone models (on standby for GIN-Graph): 2-GNN, 3-GNN — available for k-GNN training but not recommended for GIN-Graph generation due to non-differentiable adjacency path
 - **k-Set Sampling**: For large graphs (PROTEINS, DD), k-sets are randomly sampled to limit memory/time:
   - `max_pairs=5000` for 2-sets (vs 192K pairs for 620-node graph)
   - `max_triplets=3000` for 3-sets (vs 39M triplets for 620-node graph)
@@ -78,8 +92,12 @@ Dataset (MUTAG/DD/PROTEINS) → k-GNN Training → GIN-Graph Generation → Expl
 - `GINGenerator`: Outputs adjacency matrix and node features
 - `GINDiscriminator`: WGAN-GP discriminator for realism validation
 
-**Model Wrapper (`model_wrapper.py`)**: Critical bridge between dense generator output and sparse k-GNN input
-- `DenseToSparseWrapper`: Maintains gradient flow through adjacency matrices
+**Model Wrapper (`model_wrapper.py`)**: Differentiable bridge between dense generator output and pretrained k-GNN
+- `DenseToSparseWrapper`: Uses dense forward passes for hierarchical models (1gnn, 12gnn, 123gnn)
+  - **1-GNN**: Dense batched message passing `σ(H·W1 + A·H·W2)` — fully differentiable through adj
+  - **2-GNN**: Dense pair features `[h_i || h_j || adj[i,j]]` + einsum aggregation — fully differentiable through adj
+  - **3-GNN**: Optimized sparse with `torch.no_grad()` for structure + soft iso-types — partial gradient
+  - Standalone 2-GNN/3-GNN use sparse fallback (non-differentiable, not recommended for GIN-Graph)
 
 **Training (`train_gin_graph.py`)**: Joint optimization combining:
 - WGAN-GP loss (graph realism)
@@ -122,7 +140,15 @@ All hyperparameters are centralized in `config.py`:
 - `GINGraphConfig`: Latent dim, WGAN-GP settings, dynamic weighting params
 - `get_class_name(class_idx, dataset)`: Get class label from handler
 
-### Output Directories
-- `./checkpoints/`: Saved k-GNN models (`{dataset}_{model}.pt`, e.g., `mutag_1gnn.pt`)
-- `./results/experiment_TIMESTAMP/`: Full results including JSON reports and GIN-Graph checkpoints
-- `./data/`: Datasets (auto-downloaded)
+### Output Directories (3-stage pipeline)
+```
+./checkpoints/              ← Stage 1: k-GNN models ({dataset}_{model}.pt)
+./gin_checkpoints/{dataset}/ ← Stage 2: GIN-Graph models per dataset
+./results/                  ← Stage 3: Final analysis, figures, reports
+./data/                     ← Datasets (auto-downloaded)
+```
+- `./checkpoints/`: Trained k-GNN models (e.g., `mutag_1gnn.pt`)
+- `./gin_checkpoints/{dataset}/`: GIN-Graph models per dataset (e.g., `gin_checkpoints/mutag/1gnn_class0.pt`); `training/` subfolder holds intermediate checkpoints (`ckpt_*.pt`) and samples (`samples_*.npz`)
+- `./results/experiment_{dataset}_TIMESTAMP/`: Full pipeline experiment reports
+- `./results/{dataset}/{model}/`: k-GNN evaluation from `research.py gnn` (report.json)
+- `./results/{dataset}/{model}_class{N}/`: GIN-Graph analysis from `research.py gin` (figures/, explanations.npz, report.json)

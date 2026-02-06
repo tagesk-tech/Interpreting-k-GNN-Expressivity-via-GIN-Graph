@@ -47,6 +47,7 @@ def setup_experiment(args):
     config = ExperimentConfig(
         data=data_config,
         checkpoint_dir=args.checkpoint_dir,
+        gin_checkpoint_dir=args.gin_checkpoint_dir,
         results_dir=os.path.join(args.output_dir, f'experiment_{args.dataset}_{timestamp}'),
         figures_dir=os.path.join(args.output_dir, f'experiment_{args.dataset}_{timestamp}', 'figures'),
         device=args.device
@@ -61,6 +62,7 @@ def setup_experiment(args):
 
     # Create directories
     os.makedirs(config.checkpoint_dir, exist_ok=True)
+    os.makedirs(config.gin_checkpoint_dir, exist_ok=True)
     os.makedirs(config.results_dir, exist_ok=True)
     os.makedirs(config.figures_dir, exist_ok=True)
 
@@ -129,21 +131,31 @@ def run_gin_graph_training(config, models_to_train, dataset, device, class_stats
             dataset_name=dataset_name
         )
         
-        # Train
-        trainer.train(target_dataset, epochs=config.gin_graph.epochs, log_interval=50)
-        
+        # Train (intermediate checkpoints go to gin_checkpoint_dir/<dataset>/training/)
+        trainer.train(target_dataset, epochs=config.gin_graph.epochs, log_interval=50,
+                      output_dir=os.path.join(config.gin_checkpoint_dir, dataset_name, 'training'))
+
+        # Save final GIN-Graph model to gin_checkpoint_dir/<dataset>/
+        gin_dataset_dir = os.path.join(config.gin_checkpoint_dir, dataset_name)
+        os.makedirs(gin_dataset_dir, exist_ok=True)
+        gin_save_path = os.path.join(
+            gin_dataset_dir,
+            f'{model_name}_class{target_class}.pt'
+        )
+        trainer.save_checkpoint(gin_save_path)
+
         # Generate explanations
         print("\nGenerating explanations...")
         adjs, xs, metrics = trainer.generate_explanations(num_samples=100)
-        
+
         # Compute summary
         summary = trainer.evaluator.compute_summary_stats(metrics)
-        
+
         # Get best explanations
         best = trainer.evaluator.get_best_explanations(metrics, top_k=10)
         best_indices = [idx for idx, _ in best]
         best_metrics = [m for _, m in best]
-        
+
         results[model_name] = {
             'adjs': adjs,
             'xs': xs,
@@ -153,10 +165,6 @@ def run_gin_graph_training(config, models_to_train, dataset, device, class_stats
             'best_metrics': best_metrics,
             'history': trainer.history
         }
-        
-        # Save checkpoint
-        save_path = os.path.join(config.results_dir, f'gin_graph_{model_name}.pt')
-        trainer.save_checkpoint(save_path)
         
         print(f"\nResults for {model_name.upper()}:")
         print(f"  Valid explanations: {summary['num_valid']}/{summary['total_generated']}")
@@ -350,8 +358,10 @@ def main():
     # Directories
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints',
                         help='Directory for k-GNN checkpoints')
+    parser.add_argument('--gin_checkpoint_dir', type=str, default='./gin_checkpoints',
+                        help='Directory for GIN-Graph model checkpoints')
     parser.add_argument('--output_dir', type=str, default='./results',
-                        help='Output directory')
+                        help='Output directory for analysis results')
     parser.add_argument('--device', type=str, default='auto',
                         help='Device (auto/cpu/cuda)')
     

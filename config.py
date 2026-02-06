@@ -132,6 +132,7 @@ class ExperimentConfig:
     
     # Output directories
     checkpoint_dir: str = "./checkpoints"
+    gin_checkpoint_dir: str = "./gin_checkpoints"
     results_dir: str = "./results"
     figures_dir: str = "./figures"
     

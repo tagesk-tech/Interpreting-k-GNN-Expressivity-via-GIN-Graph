@@ -319,16 +319,20 @@ class GINGraphTrainer:
         dataset,
         epochs: int,
         verbose: bool = True,
-        log_interval: int = 10
+        log_interval: int = 10,
+        checkpoint_interval: int = 20,
+        output_dir: Optional[str] = None
     ):
         """
         Full training loop.
-        
+
         Args:
             dataset: PyG dataset filtered to target class
             epochs: Number of training epochs
             verbose: Print progress
             log_interval: Epochs between log messages
+            checkpoint_interval: Save checkpoint + samples every N epochs (0 to disable)
+            output_dir: Directory for intermediate checkpoints/samples (required if checkpoint_interval > 0)
         """
         # Create data loader
         train_loader = torch.utils.data.DataLoader(
@@ -401,6 +405,28 @@ class GINGraphTrainer:
                 avg_prob = epoch_pred_prob / num_batches
                 print(f"Epoch {epoch:4d} | D Loss: {avg_d:7.4f} | G Loss: {avg_g:7.4f} | "
                       f"Pred Prob: {avg_prob:.4f} | λ: {current_lambda:.3f}")
+
+            # Intermediate checkpointing
+            if (output_dir and checkpoint_interval > 0
+                    and (epoch % checkpoint_interval == 0 or epoch == epochs - 1)):
+                os.makedirs(output_dir, exist_ok=True)
+                # Save model checkpoint
+                ckpt_path = os.path.join(
+                    output_dir,
+                    f'ckpt_{self.dataset_name}_{self.model_type}_epoch{epoch}.pt'
+                )
+                self.save_checkpoint(ckpt_path)
+                # Generate a small batch of samples
+                sample_adjs, sample_xs, sample_metrics = self.generate_explanations(num_samples=16)
+                predictions = np.array([m.prediction_probability for m in sample_metrics])
+                sample_path = os.path.join(
+                    output_dir,
+                    f'samples_{self.dataset_name}_{self.model_type}_epoch{epoch}.npz'
+                )
+                np.savez(sample_path, adjs=sample_adjs, xs=sample_xs,
+                         predictions=predictions, epoch=epoch)
+                if verbose:
+                    print(f"         → Checkpoint + 16 samples saved to {output_dir}")
     
     def generate_explanations(
         self,
@@ -528,8 +554,10 @@ def main():
                         help='Learning rate')
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints',
                         help='Directory with k-GNN checkpoints')
+    parser.add_argument('--gin_checkpoint_dir', type=str, default='./gin_checkpoints',
+                        help='Directory for GIN-Graph model checkpoints and training samples')
     parser.add_argument('--output_dir', type=str, default='./results',
-                        help='Output directory for results')
+                        help='Output directory for final analysis results')
     parser.add_argument('--device', type=str, default='auto',
                         help='Device (auto/cpu/cuda)')
     parser.add_argument('--num_samples', type=int, default=100,
@@ -598,19 +626,31 @@ def main():
         dataset_name=dataset_name
     )
     
-    # Train
+    # Train (intermediate checkpoints + samples go to gin_checkpoint_dir)
     print("=" * 60)
     print("Training GIN-Graph Generator")
     print("=" * 60)
-    trainer.train(target_dataset, epochs=args.epochs, log_interval=30)
+    trainer.train(target_dataset, epochs=args.epochs, log_interval=30,
+                  output_dir=os.path.join(args.gin_checkpoint_dir, dataset_name, 'training'))
     print()
-    
+
+    # Save final GIN-Graph model to gin_checkpoint_dir/<dataset>/
+    gin_dataset_dir = os.path.join(args.gin_checkpoint_dir, dataset_name)
+    os.makedirs(gin_dataset_dir, exist_ok=True)
+    gin_save_path = os.path.join(
+        gin_dataset_dir,
+        f'{args.model}_class{args.target_class}.pt'
+    )
+    trainer.save_checkpoint(gin_save_path)
+    print(f"GIN-Graph model saved to: {gin_save_path}")
+
     # Generate and evaluate explanations
+    print()
     print("=" * 60)
     print("Generating Explanation Graphs")
     print("=" * 60)
     adjs, xs, metrics = trainer.generate_explanations(num_samples=args.num_samples)
-    
+
     # Print summary
     summary = trainer.evaluator.compute_summary_stats(metrics)
     print(f"\nGeneration Summary:")
@@ -618,30 +658,25 @@ def main():
     print(f"  Valid explanations: {summary['num_valid']} ({summary['validity_rate']*100:.1f}%)")
     print(f"  Mean validation score: {summary['mean_validation_score']:.4f}")
     print(f"  Mean prediction prob: {summary['mean_prediction_prob']:.4f}")
-    
+
     # Get best explanations
     best = trainer.evaluator.get_best_explanations(metrics, top_k=5)
     print(f"\nTop 5 Explanations:")
     for rank, (idx, m) in enumerate(best, 1):
         print(f"  {rank}. Score: {m.validation_score:.4f}, Nodes: {m.num_nodes}, "
               f"Edges: {m.num_edges}, Pred: {m.prediction_probability:.4f}")
-    
-    # Save checkpoint
-    os.makedirs(args.output_dir, exist_ok=True)
-    save_path = os.path.join(args.output_dir, f'gin_graph_{dataset_name}_{args.model}_class{args.target_class}.pt')
-    trainer.save_checkpoint(save_path)
-    print(f"\nCheckpoint saved to: {save_path}")
 
-    # Save best explanations
+    # Save final analysis results to output_dir
+    os.makedirs(args.output_dir, exist_ok=True)
     if best:
         best_indices = [idx for idx, _ in best]
-        np.savez(
-            os.path.join(args.output_dir, f'explanations_{dataset_name}_{args.model}_class{args.target_class}.npz'),
-            adjs=adjs[best_indices],
-            xs=xs[best_indices],
-            indices=best_indices
+        results_path = os.path.join(
+            args.output_dir,
+            f'explanations_{dataset_name}_{args.model}_class{args.target_class}.npz'
         )
-        print(f"Best explanations saved")
+        np.savez(results_path, adjs=adjs[best_indices], xs=xs[best_indices],
+                 indices=best_indices)
+        print(f"\nBest explanations saved to: {results_path}")
 
 
 if __name__ == "__main__":

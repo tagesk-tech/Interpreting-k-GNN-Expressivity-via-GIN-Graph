@@ -1,6 +1,7 @@
 # Machine Learning artifacts
 data/
 checkpoints/
+gin_checkpoints/
 results/
 figures/
 

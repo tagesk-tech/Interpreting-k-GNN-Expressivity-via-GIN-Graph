@@ -2,167 +2,269 @@
 model_wrapper.py
 Wrapper to convert sparse k-GNN models to accept dense inputs from the generator.
 
-This is crucial for gradient flow during GIN-Graph training.
+Provides fully differentiable dense forward passes for hierarchical models
+(1gnn, 12gnn, 123gnn), with gradient flow through both node features AND
+adjacency matrices. This is critical for GIN-Graph training.
+
+For standalone models (2gnn, 3gnn), falls back to sparse conversion
+(not recommended for GIN-Graph — see README).
 """
 
 import torch
 import torch.nn as nn
-from torch_geometric.utils import dense_to_sparse
-from typing import Optional
+from torch_geometric.nn import global_add_pool
+
+from models_kgnn import _sample_ksets, build_3set_edges
 
 
 class DenseToSparseWrapper(nn.Module):
     """
     Wraps a sparse k-GNN model to accept dense inputs (x, adj) from the Generator.
-    
-    The key insight is that we need to maintain gradient flow through the
-    adjacency matrix. We do this by:
-    1. Converting dense adj to sparse edge_index
-    2. Passing the continuous adj values as edge_weight
-    3. The k-GNN model uses edge_weight in its message passing
-    
-    Note: The wrapped model must support edge_weight in its forward pass,
-    OR we modify the forward to work with dense inputs directly.
+
+    For hierarchical models (1gnn, 12gnn, 123gnn), uses fully differentiable
+    dense forward passes that maintain gradient flow through the adjacency matrix.
+
+    For standalone models (2gnn, 3gnn), falls back to sparse conversion
+    (not recommended for GIN-Graph due to non-differentiable adjacency).
     """
-    
+
     def __init__(self, sparse_model: nn.Module, model_type: str = '1gnn'):
-        """
-        Args:
-            sparse_model: The trained k-GNN model
-            model_type: Type of model ('1gnn', '12gnn', '123gnn')
-        """
         super().__init__()
         self.sparse_model = sparse_model
         self.model_type = model_type
-        
+
         # Freeze the pretrained model
         for param in self.sparse_model.parameters():
             param.requires_grad = False
         self.sparse_model.eval()
-    
+
     def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
         """
-        Forward pass converting dense inputs to sparse format.
-        
+        Forward pass converting dense inputs through the pretrained k-GNN.
+
         Args:
             x: Node features [batch, N, D]
             adj: Adjacency matrix [batch, N, N] (continuous values from generator)
-            
+
         Returns:
             logits: Classification logits [batch, num_classes]
         """
+        if self.model_type == '1gnn':
+            return self._forward_dense_1gnn(x, adj)
+        elif self.model_type == '12gnn':
+            return self._forward_dense_12gnn(x, adj)
+        elif self.model_type == '123gnn':
+            return self._forward_dense_123gnn(x, adj)
+        else:
+            # Fallback for standalone 2gnn/3gnn
+            return self._forward_sparse(x, adj)
+
+    # ==================== Dense Building Blocks ====================
+
+    def _dense_1gnn(self, x, adj):
+        """
+        Dense 1-GNN message passing using pretrained OneGNNLayer weights.
+        Fully differentiable through adj.
+
+        Equivalent to: f^(t)(v) = sigma(f^(t-1)(v)*W1 + A*f^(t-1)*W2)
+        """
+        layers = getattr(self.sparse_model, 'gnn1_layers',
+                         getattr(self.sparse_model, 'layers', []))
+        h = x
+        for layer in layers:
+            h = layer.activation(layer.W1(h) + torch.bmm(adj, layer.W2(h)))
+        return h
+
+    def _dense_2gnn(self, h, adj):
+        """
+        Dense 2-set message passing using pretrained KSetLayer weights.
+        Fully differentiable through adj.
+
+        For each pair (i,j):
+        - Feature: [h_i || h_j || adj[i,j]] with soft (differentiable) iso-type
+        - Neighbor def: {j,w} is neighbor of {i,j} if adj[i,w]*adj[j,w] > 0
+          (w connected to both i and j, matching pretrained behavior)
+        """
+        B, N, D = h.shape
+        device = h.device
+
+        # Remove self-loops for correct k-set neighborhoods
+        eye = torch.eye(N, device=device).unsqueeze(0)
+        adj_clean = adj * (1.0 - eye)
+
+        # Build pair features: [h_i || h_j || adj[i,j]]
+        h_i = h.unsqueeze(2).expand(-1, -1, N, -1)  # [B, N, N, D]
+        h_j = h.unsqueeze(1).expand(-1, N, -1, -1)  # [B, N, N, D]
+        iso = adj_clean.unsqueeze(-1)                 # [B, N, N, 1]
+        pair_feat = torch.cat([h_i, h_j, iso], dim=-1)  # [B, N, N, 2D+1]
+
+        # Apply pretrained 2-GNN layers
+        for layer in self.sparse_model.gnn2_layers:
+            g = layer.W2(pair_feat)        # [B, N, N, hidden]
+            self_part = layer.W1(pair_feat)
+
+            # masked_g[b,i,w,d] = adj[b,i,w] * g[b,i,w,d]
+            masked_g = adj_clean.unsqueeze(-1) * g
+
+            # Dense 2-set aggregation (matches pretrained "w neighbor of both" def):
+            # agg1[i,j] = sum_w adj[i,w]*adj[j,w]*g[j,w]  (from neighbor pair {j,w})
+            agg1 = torch.einsum('biw,bjwd->bijd', adj_clean, masked_g)
+            # agg2[i,j] = sum_w adj[j,w]*adj[i,w]*g[i,w]  (from neighbor pair {i,w})
+            agg2 = torch.einsum('bjw,biwd->bijd', adj_clean, masked_g)
+
+            pair_feat = layer.activation(self_part + agg1 + agg2)
+
+        # Pool unique pairs (upper triangle, matching pretrained global_add_pool)
+        mask = torch.triu(torch.ones(N, N, device=device), diagonal=1)
+        return (pair_feat * mask.unsqueeze(0).unsqueeze(-1)).sum(dim=(1, 2))
+
+    def _sparse_3gnn(self, h, adj):
+        """
+        3-GNN using optimized sparse approach with soft iso-types.
+
+        Full dense 3-set tensors [B,N,N,N,D] would be too large for most graphs.
+        Instead we use sparse k-set construction with:
+        - torch.no_grad() for structure computation (speed)
+        - Soft iso-types from continuous adj values (gradient flows)
+        - Node features from dense 1-GNN (gradient flows)
+        """
+        B, N, D = h.shape
+        device = h.device
+
+        eye = torch.eye(N, device=device).unsqueeze(0)
+        adj_clean = adj * (1.0 - eye)
+
+        all_feats, all_batch, all_src, all_dst = [], [], [], []
+        offset = 0
+
+        for b in range(B):
+            h_b = h[b]            # [N, D] — gradient to generator
+            adj_b = adj_clean[b]  # [N, N] — gradient to generator
+
+            # Structure computation (no gradient needed)
+            with torch.no_grad():
+                binary_adj = (adj_b > 0.5).float()
+                trips = _sample_ksets(N, 3, 3000, device)
+                edges = build_3set_edges(trips, binary_adj, device)
+
+            # Features with soft adjacency (differentiable!)
+            fa = h_b[trips[:, 0]]
+            fb = h_b[trips[:, 1]]
+            fc = h_b[trips[:, 2]]
+
+            # Soft iso-type: continuous edge count (gradient flows through adj!)
+            ec_soft = (adj_b[trips[:, 0], trips[:, 1]] +
+                       adj_b[trips[:, 1], trips[:, 2]] +
+                       adj_b[trips[:, 0], trips[:, 2]])
+            # Soft one-hot via triangular basis at {0, 1, 2, 3}
+            k_vals = torch.arange(4, device=device, dtype=torch.float)
+            iso = torch.clamp(1.0 - (ec_soft.unsqueeze(1) - k_vals).abs(), min=0)
+
+            all_feats.append(torch.cat([fa, fb, fc, iso], dim=1))
+            all_batch.append(torch.full((trips.size(0),), b, device=device, dtype=torch.long))
+
+            if edges.size(1) > 0:
+                all_src.append(edges[0] + offset)
+                all_dst.append(edges[1] + offset)
+            offset += trips.size(0)
+
+        if not all_feats:
+            return torch.zeros(B, self.sparse_model.hidden_dim, device=device)
+
+        trip_feat = torch.cat(all_feats)
+        batch_vec = torch.cat(all_batch)
+        if all_src:
+            trip_edges = torch.stack([torch.cat(all_src), torch.cat(all_dst)])
+        else:
+            trip_edges = torch.empty((2, 0), dtype=torch.long, device=device)
+
+        # Run all triplets through pretrained 3-GNN layers (batched)
+        h3 = trip_feat
+        for layer in self.sparse_model.gnn3_layers:
+            self_part = layer.W1(h3)
+            if trip_edges.size(1) > 0:
+                src_feat = layer.W2(h3[trip_edges[0]])
+                nbr_part = torch.zeros_like(self_part)
+                nbr_part.index_add_(0, trip_edges[1], src_feat)
+            else:
+                nbr_part = torch.zeros_like(self_part)
+            h3 = layer.activation(self_part + nbr_part)
+
+        return global_add_pool(h3, batch_vec)
+
+    # ==================== Dense Forward Passes ====================
+
+    def _forward_dense_1gnn(self, x, adj):
+        """1-GNN: fully differentiable dense forward."""
+        h = self._dense_1gnn(x, adj)
+        graph_emb = h.sum(dim=1)
+        return self.sparse_model.classifier(graph_emb)
+
+    def _forward_dense_12gnn(self, x, adj):
+        """12-GNN: fully differentiable dense 1-GNN + 2-GNN."""
+        h = self._dense_1gnn(x, adj)
+        emb1 = h.sum(dim=1)
+        emb2 = self._dense_2gnn(h, adj)
+        return self.sparse_model.classifier(torch.cat([emb1, emb2], dim=1))
+
+    def _forward_dense_123gnn(self, x, adj):
+        """123-GNN: dense 1+2-GNN, optimized sparse 3-GNN."""
+        h = self._dense_1gnn(x, adj)
+        emb1 = h.sum(dim=1)
+        emb2 = self._dense_2gnn(h, adj)
+        emb3 = self._sparse_3gnn(h, adj)
+        return self.sparse_model.classifier(torch.cat([emb1, emb2, emb3], dim=1))
+
+    # ==================== Sparse Fallback ====================
+
+    def _forward_sparse(self, x, adj):
+        """
+        Original sparse forward for standalone 2gnn/3gnn models.
+
+        Note: Not recommended for GIN-Graph training due to
+        non-differentiable adjacency conversion.
+        """
         batch_size, num_nodes, num_feats = x.size()
         device = x.device
-        
-        # Process each graph in the batch
+
         all_x = []
         all_edge_index = []
         all_batch = []
         node_offset = 0
-        
+
         for b in range(batch_size):
-            # Get this graph's data
-            x_b = x[b]  # [N, D]
-            adj_b = adj[b]  # [N, N]
-            
-            # Convert to sparse (threshold for edges)
-            # Use soft thresholding to maintain some gradient flow
+            x_b = x[b]
+            adj_b = adj[b]
+
             edge_mask = adj_b > 0.5
-            edge_index_b = edge_mask.nonzero(as_tuple=False).t()  # [2, num_edges]
-            
+            edge_index_b = edge_mask.nonzero(as_tuple=False).t()
+
             if edge_index_b.size(1) == 0:
-                # No edges - create minimal self-loops
                 edge_index_b = torch.tensor([[0], [0]], device=device, dtype=torch.long)
-            
-            # Offset edge indices for batching
+
             edge_index_b = edge_index_b + node_offset
-            
+
             all_x.append(x_b)
             all_edge_index.append(edge_index_b)
             all_batch.append(torch.full((num_nodes,), b, device=device, dtype=torch.long))
-            
+
             node_offset += num_nodes
-        
-        # Concatenate all
-        x_flat = torch.cat(all_x, dim=0)  # [batch*N, D]
-        edge_index = torch.cat(all_edge_index, dim=1)  # [2, total_edges]
-        batch_vec = torch.cat(all_batch, dim=0)  # [batch*N]
-        
-        # Forward through sparse model
+
+        x_flat = torch.cat(all_x, dim=0)
+        edge_index = torch.cat(all_edge_index, dim=1)
+        batch_vec = torch.cat(all_batch, dim=0)
+
         return self.sparse_model(x_flat, edge_index, batch_vec)
 
 
-class DenseKGNNWrapper(nn.Module):
-    """
-    Alternative wrapper that directly modifies the k-GNN to work with dense inputs.
-    
-    This approach keeps everything in dense format, which is simpler but
-    may be less memory efficient for sparse graphs.
-    """
-    
-    def __init__(self, sparse_model: nn.Module, model_type: str = '1gnn'):
-        super().__init__()
-        self.sparse_model = sparse_model
-        self.model_type = model_type
-        self.hidden_dim = sparse_model.hidden_dim
-        
-        # Freeze pretrained weights
-        for param in self.sparse_model.parameters():
-            param.requires_grad = False
-        self.sparse_model.eval()
-    
-    def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
-        """
-        Dense forward pass.
-        
-        Args:
-            x: Node features [batch, N, D]
-            adj: Adjacency matrix [batch, N, N]
-            
-        Returns:
-            logits: [batch, num_classes]
-        """
-        batch_size = x.size(0)
-        device = x.device
-        
-        # Add self-loops and normalize
-        n = adj.size(1)
-        identity = torch.eye(n, device=device).unsqueeze(0).expand(batch_size, -1, -1)
-        adj_with_self = adj + identity
-        
-        # Symmetric normalization: D^{-1/2} A D^{-1/2}
-        degree = adj_with_self.sum(dim=-1, keepdim=True).clamp(min=1)
-        adj_norm = adj_with_self / degree
-        
-        # Run through 1-GNN layers (dense message passing)
-        h = x
-        for layer in self.sparse_model.gnn1_layers if hasattr(self.sparse_model, 'gnn1_layers') else self.sparse_model.layers:
-            # Dense message passing: H' = σ(W1*H + A*H*W2)
-            self_part = layer.W1(h)
-            neighbor_part = torch.bmm(adj_norm, layer.W2(h))
-            h = layer.activation(self_part + neighbor_part)
-        
-        # Global pooling (sum over nodes)
-        graph_emb = h.sum(dim=1)  # [batch, hidden_dim]
-        
-        # For hierarchical models, we'd need to build k-sets here
-        # For simplicity with generated graphs, we just use the 1-GNN part
-        if self.model_type == '12gnn':
-            # Approximate 2-GNN contribution with zeros (or implement full dense version)
-            graph_emb = torch.cat([graph_emb, torch.zeros_like(graph_emb)], dim=1)
-        elif self.model_type == '123gnn':
-            graph_emb = torch.cat([graph_emb, torch.zeros_like(graph_emb), torch.zeros_like(graph_emb)], dim=1)
-        
-        return self.sparse_model.classifier(graph_emb)
-
+# ==================== Utility Models ====================
 
 class SimpleDenseGNN(nn.Module):
     """
     A simple dense GNN that can be used directly with generator outputs.
-    
-    This is useful for testing and as a baseline.
+    Useful for testing and as a baseline.
     """
-    
+
     def __init__(
         self,
         input_dim: int,
@@ -172,60 +274,47 @@ class SimpleDenseGNN(nn.Module):
     ):
         super().__init__()
         self.hidden_dim = hidden_dim
-        
+
         self.layers = nn.ModuleList()
         self.layers.append(DenseGNNLayer(input_dim, hidden_dim))
         for _ in range(num_layers - 1):
             self.layers.append(DenseGNNLayer(hidden_dim, hidden_dim))
-        
+
         self.classifier = nn.Sequential(
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
             nn.Dropout(0.5),
             nn.Linear(hidden_dim, output_dim)
         )
-    
+
     def forward(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: [batch, N, D]
-            adj: [batch, N, N]
-        """
         batch_size = x.size(0)
         n = adj.size(1)
         device = x.device
-        
-        # Normalize adjacency
+
         identity = torch.eye(n, device=device).unsqueeze(0).expand(batch_size, -1, -1)
         adj_with_self = adj + identity
         degree = adj_with_self.sum(dim=-1, keepdim=True).clamp(min=1)
         adj_norm = adj_with_self / degree
-        
+
         h = x
         for layer in self.layers:
             h = layer(h, adj_norm)
-        
-        # Global sum pooling
+
         graph_emb = h.sum(dim=1)
-        
         return self.classifier(graph_emb)
 
 
 class DenseGNNLayer(nn.Module):
     """Single dense GNN layer."""
-    
+
     def __init__(self, in_dim: int, out_dim: int):
         super().__init__()
         self.W1 = nn.Linear(in_dim, out_dim, bias=False)
         self.W2 = nn.Linear(in_dim, out_dim, bias=False)
         self.activation = nn.ReLU()
-    
+
     def forward(self, x: torch.Tensor, adj_norm: torch.Tensor) -> torch.Tensor:
-        """
-        Args:
-            x: [batch, N, in_dim]
-            adj_norm: Normalized adjacency [batch, N, N]
-        """
         self_part = self.W1(x)
         neighbor_part = torch.bmm(adj_norm, self.W2(x))
         return self.activation(self_part + neighbor_part)
