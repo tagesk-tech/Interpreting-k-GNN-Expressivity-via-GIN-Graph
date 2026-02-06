@@ -1,0 +1,157 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Problem Setting}{3}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Stage 1: $k$-GNN Classification}{3}{section.2}\protected@file@percent }
+\newlabel{sec:kgnn}{{2}{3}{Stage 1: $k$-GNN Classification}{section.2}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}The Weisfeiler--Leman Hierarchy}{3}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}1-GNN (Standard Message Passing)}{3}{subsection.2.2}\protected@file@percent }
+\newlabel{sec:1gnn}{{2.2}{3}{1-GNN (Standard Message Passing)}{subsection.2.2}{}}
+\newlabel{eq:1gnn}{{1}{3}{1-GNN (Standard Message Passing)}{equation.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete dimensions.}{4}{section*.2}\protected@file@percent }
+\newlabel{eq:1gnn_dims1}{{3}{4}{Concrete dimensions}{equation.3}{}}
+\newlabel{eq:1gnn_dims3}{{5}{4}{Concrete dimensions}{equation.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{Matrix form (dense).}{4}{section*.3}\protected@file@percent }
+\newlabel{eq:1gnn_dense}{{6}{4}{Matrix form (dense)}{equation.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{Batched form.}{4}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Graph-level readout.}{4}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}2-GNN (Pair Message Passing)}{4}{subsection.2.3}\protected@file@percent }
+\newlabel{sec:2gnn}{{2.3}{4}{2-GNN (Pair Message Passing)}{subsection.2.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{Initial features.}{4}{section*.6}\protected@file@percent }
+\newlabel{eq:2gnn_init}{{9}{4}{Initial features}{equation.9}{}}
+\@writefile{toc}{\contentsline {paragraph}{Message passing.}{4}{section*.7}\protected@file@percent }
+\newlabel{eq:2gnn}{{10}{4}{Message passing}{equation.10}{}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete dimensions.}{5}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Neighbourhood enumeration.}{5}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Dense formulation.}{5}{section*.10}\protected@file@percent }
+\newlabel{eq:agg1}{{13}{5}{Dense formulation}{equation.13}{}}
+\newlabel{eq:agg2}{{14}{5}{Dense formulation}{equation.14}{}}
+\newlabel{eq:einsum}{{15}{5}{Equivalence to Morris et al}{equation.15}{}}
+\@writefile{toc}{\contentsline {paragraph}{Graph-level readout.}{5}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}3-GNN (Triplet Message Passing)}{5}{subsection.2.4}\protected@file@percent }
+\newlabel{sec:3gnn}{{2.4}{5}{3-GNN (Triplet Message Passing)}{subsection.2.4}{}}
+\@writefile{toc}{\contentsline {paragraph}{Initial features.}{6}{section*.12}\protected@file@percent }
+\newlabel{eq:3gnn_init}{{18}{6}{Initial features}{equation.18}{}}
+\@writefile{toc}{\contentsline {paragraph}{Soft iso-type (for generator gradient flow).}{6}{section*.13}\protected@file@percent }
+\newlabel{eq:soft_iso}{{21}{6}{Soft iso-type (for generator gradient flow)}{equation.21}{}}
+\newlabel{eq:triangular_basis}{{22}{6}{Soft iso-type (for generator gradient flow)}{equation.22}{}}
+\@writefile{toc}{\contentsline {paragraph}{Concrete dimensions.}{6}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Neighbourhood enumeration.}{6}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Message passing.}{6}{section*.16}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Scalability.}{6}{section*.17}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Hierarchical Models}{7}{subsection.2.5}\protected@file@percent }
+\newlabel{sec:hierarchical}{{2.5}{7}{Hierarchical Models}{subsection.2.5}{}}
+\@writefile{toc}{\contentsline {paragraph}{1-2-GNN (\texttt  {Hierarchical12GNN}).}{7}{section*.18}\protected@file@percent }
+\newlabel{eq:12gnn}{{25}{7}{1-2-GNN (\texttt {Hierarchical12GNN})}{equation.25}{}}
+\@writefile{toc}{\contentsline {paragraph}{1-2-3-GNN (\texttt  {Hierarchical123GNN}).}{7}{section*.19}\protected@file@percent }
+\newlabel{eq:123gnn}{{26}{7}{1-2-3-GNN (\texttt {Hierarchical123GNN})}{equation.26}{}}
+\@writefile{toc}{\contentsline {paragraph}{Classifier MLP.}{7}{section*.20}\protected@file@percent }
+\newlabel{eq:classifier}{{27}{7}{Classifier MLP}{equation.27}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}$k$-GNN Training Procedure}{7}{subsection.2.6}\protected@file@percent }
+\newlabel{sec:kgnn_training}{{2.6}{7}{$k$-GNN Training Procedure}{subsection.2.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{Loss function.}{7}{section*.21}\protected@file@percent }
+\newlabel{eq:ce_loss}{{28}{7}{Loss function}{equation.28}{}}
+\@writefile{toc}{\contentsline {paragraph}{Optimizer.}{8}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Training protocol.}{8}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Parameter counts.}{8}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Stage 2: GIN-Graph Explanation Generator}{8}{section.3}\protected@file@percent }
+\newlabel{sec:gin}{{3}{8}{Stage 2: GIN-Graph Explanation Generator}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Architecture Overview}{8}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Generator Architecture}{8}{subsection.3.2}\protected@file@percent }
+\newlabel{sec:generator}{{3.2}{8}{Generator Architecture}{subsection.3.2}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.1}Backbone MLP}{8}{subsubsection.3.2.1}\protected@file@percent }
+\newlabel{eq:gen_layer1}{{30}{8}{Backbone MLP}{equation.30}{}}
+\newlabel{eq:gen_layer2}{{31}{8}{Backbone MLP}{equation.31}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.2}Adjacency Head}{9}{subsubsection.3.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.3}Gumbel-Softmax Reparameterisation}{9}{subsubsection.3.2.3}\protected@file@percent }
+\newlabel{sec:gumbel}{{3.2.3}{9}{Gumbel-Softmax Reparameterisation}{subsubsection.3.2.3}{}}
+\@writefile{toc}{\contentsline {paragraph}{The Gumbel-Max trick.}{9}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Gumbel-Softmax relaxation (Jang et al., 2017; Maddison et al., 2017).}{9}{section*.26}\protected@file@percent }
+\newlabel{eq:gumbel_softmax}{{38}{9}{Gumbel-Softmax relaxation (Jang et al., 2017; Maddison et al., 2017)}{equation.38}{}}
+\@writefile{toc}{\contentsline {paragraph}{Straight-through estimator (\texttt  {hard=True}).}{9}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Application to edge sampling.}{10}{section*.28}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Temperature during training vs.\ evaluation.}{10}{section*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.4}Post-Gumbel Symmetrisation (Critical)}{10}{subsubsection.3.2.4}\protected@file@percent }
+\newlabel{sec:symmetrisation}{{3.2.4}{10}{Post-Gumbel Symmetrisation (Critical)}{subsubsection.3.2.4}{}}
+\newlabel{eq:sym}{{44}{10}{Post-Gumbel Symmetrisation (Critical)}{equation.44}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.5}Node Feature Head}{10}{subsubsection.3.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.2.6}Generator Parameter Summary}{11}{subsubsection.3.2.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Discriminator Architecture}{11}{subsection.3.3}\protected@file@percent }
+\newlabel{sec:discriminator}{{3.3}{11}{Discriminator Architecture}{subsection.3.3}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.1}Dense GCN Layers}{11}{subsubsection.3.3.1}\protected@file@percent }
+\newlabel{eq:dense_gcn}{{47}{11}{Dense GCN Layers}{equation.47}{}}
+\@writefile{toc}{\contentsline {paragraph}{Implementation detail.}{11}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Concrete dimensions.}{11}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.3.2}Graph-Level Output}{11}{subsubsection.3.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}WGAN-GP Training}{12}{subsection.3.4}\protected@file@percent }
+\newlabel{sec:wgan}{{3.4}{12}{WGAN-GP Training}{subsection.3.4}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.1}Discriminator Loss}{12}{subsubsection.3.4.1}\protected@file@percent }
+\newlabel{eq:d_loss}{{55}{12}{Discriminator Loss}{equation.55}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.2}Gradient Penalty}{12}{subsubsection.3.4.2}\protected@file@percent }
+\newlabel{eq:gp}{{59}{12}{Gradient Penalty}{equation.59}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.3}Real Data Preparation}{12}{subsubsection.3.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.4.4}Discriminator Training Step}{12}{subsubsection.3.4.4}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {1}{\ignorespaces Single Discriminator Step}}{12}{algorithm.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Dense Forward Pass Through Pretrained $k$-GNN}{13}{subsection.3.5}\protected@file@percent }
+\newlabel{sec:wrapper}{{3.5}{13}{Dense Forward Pass Through Pretrained $k$-GNN}{subsection.3.5}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.5.1}1-GNN Wrapper (Fully Differentiable)}{13}{subsubsection.3.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.5.2}2-GNN Wrapper (Fully Differentiable)}{13}{subsubsection.3.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Step 1: Build canonical pair features.}{13}{section*.32}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Step 2: Apply pretrained 2-GNN layers.}{13}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Step 3: Pool upper triangle.}{13}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.5.3}3-GNN Wrapper (Partial Gradient Flow)}{14}{subsubsection.3.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Training Objective}{14}{subsection.3.6}\protected@file@percent }
+\newlabel{sec:training_objective}{{3.6}{14}{Training Objective}{subsection.3.6}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.6.1}Generator Loss}{14}{subsubsection.3.6.1}\protected@file@percent }
+\newlabel{eq:gen_loss}{{69}{14}{Generator Loss}{equation.69}{}}
+\@writefile{toc}{\contentsline {paragraph}{GAN loss.}{14}{section*.35}\protected@file@percent }
+\newlabel{eq:gan_loss}{{70}{14}{GAN loss}{equation.70}{}}
+\@writefile{toc}{\contentsline {paragraph}{GNN guidance loss.}{14}{section*.36}\protected@file@percent }
+\newlabel{eq:gnn_loss}{{71}{14}{GNN guidance loss}{equation.71}{}}
+\@writefile{toc}{\contentsline {paragraph}{Degree regularisation loss.}{14}{section*.37}\protected@file@percent }
+\newlabel{eq:degree_loss}{{72}{14}{Degree regularisation loss}{equation.72}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.6.2}Dynamic Weighting Schedule}{15}{subsubsection.3.6.2}\protected@file@percent }
+\newlabel{sec:dynamic_weighting}{{3.6.2}{15}{Dynamic Weighting Schedule}{subsubsection.3.6.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Schedule function.}{15}{section*.38}\protected@file@percent }
+\newlabel{eq:lambda_schedule}{{75}{15}{Schedule function}{equation.75}{}}
+\@writefile{toc}{\contentsline {paragraph}{Normalised progress.}{15}{section*.39}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Derivative of $\lambda _t$.}{16}{section*.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Intuition.}{16}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.6.3}Generator Training Step}{16}{subsubsection.3.6.3}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {2}{\ignorespaces Single Generator Step}}{16}{algorithm.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {3.6.4}Optimiser Details}{16}{subsubsection.3.6.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Stage 3: Evaluation}{16}{section.4}\protected@file@percent }
+\newlabel{sec:metrics}{{4}{16}{Stage 3: Evaluation}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Evaluation Protocol}{16}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Per-Graph Metrics}{17}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Edge thresholding.}{17}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Active nodes and edges.}{17}{section*.43}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Prediction probability.}{17}{section*.44}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Embedding similarity.}{17}{section*.45}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Degree score.}{17}{section*.46}\protected@file@percent }
+\newlabel{eq:degree_score}{{87}{17}{Degree score}{equation.87}{}}
+\@writefile{toc}{\contentsline {paragraph}{Validation score.}{17}{section*.47}\protected@file@percent }
+\newlabel{eq:validation}{{88}{17}{Validation score}{equation.88}{}}
+\@writefile{toc}{\contentsline {paragraph}{Validity.}{18}{section*.48}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Granularity.}{18}{section*.49}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Gradient Flow Analysis}{18}{section.5}\protected@file@percent }
+\newlabel{sec:gradients}{{5}{18}{Gradient Flow Analysis}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Full Gradient Decomposition}{18}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Through $\tilde  {\mathbf  {A}}$.}{18}{section*.50}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Through $\tilde  {\mathbf  {X}}$.}{18}{section*.51}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Through Gumbel-Softmax}{18}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}Gradient Flow Summary by Model}{19}{subsection.5.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Putting It All Together}{19}{section.6}\protected@file@percent }
+\@writefile{loa}{\contentsline {algorithm}{\numberline {3}{\ignorespaces Full Pipeline}}{19}{algorithm.3}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Results across all configurations. $^\dagger $Only 30 epochs (vs.\ 300 for others).}}{20}{table.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Observed Results and Interpretation}{20}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Summary Table}{20}{subsection.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Key Observations}{20}{subsection.7.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{1. Class asymmetry in MUTAG.}{20}{section*.52}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{2. Higher-order $\neq  $ better explanations.}{20}{section*.53}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{3. PROTEINS is more amenable.}{20}{section*.54}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {8}Open Questions and Directions}{20}{section.8}\protected@file@percent }
+\newlabel{sec:open}{{8}{20}{Open Questions and Directions}{section.8}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9}Notation Reference}{21}{section.9}\protected@file@percent }
+\gdef \@abspage@last{22}

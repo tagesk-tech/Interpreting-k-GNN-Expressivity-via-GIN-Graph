@@ -1,0 +1,1032 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc,fit,decorations.pathreplacing}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{bm}
+\usepackage{mathtools}
+
+\newtheorem{definition}{Definition}
+\newtheorem{remark}{Remark}
+\newtheorem{problem}{Problem}
+\newtheorem{proposition}{Proposition}
+
+\DeclareMathOperator{\softmax}{softmax}
+\DeclareMathOperator{\GumbelSoftmax}{GumbelSoftmax}
+\DeclareMathOperator{\ReLU}{ReLU}
+\DeclareMathOperator{\LeakyReLU}{LeakyReLU}
+\DeclareMathOperator{\pool}{pool}
+\DeclareMathOperator{\diag}{diag}
+\DeclareMathOperator{\triu}{triu}
+\DeclareMathOperator{\clamp}{clamp}
+
+\title{\textbf{Mathematical Framework for Interpreting $k$-GNN\\Expressivity via GIN-Graph Explanations}\\[6pt]
+\large A Reverse-Engineering Reference}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+\tableofcontents
+\newpage
+
+%=============================================================================
+\section{Problem Setting}
+%=============================================================================
+
+\begin{problem}[Graph Classification]
+Given a dataset $\mathcal{D} = \{(G_i, y_i)\}_{i=1}^{N}$ where each $G_i = (V_i, E_i, \mathbf{X}_i)$ is an attributed graph with node features $\mathbf{X}_i \in \mathbb{R}^{|V_i| \times d}$ and $y_i \in \{0, 1, \ldots, C-1\}$ is a class label, learn a function $f_\theta: \mathcal{G} \to \mathbb{R}^C$ that maps graphs to class logits.
+\end{problem}
+
+\begin{problem}[Model-Level Explanation]
+Given a trained classifier $f_\theta$, generate a synthetic graph $\tilde{G}$ that \emph{maximally activates} a target class $c$, while being \emph{structurally realistic} with respect to $\mathcal{D}$. The generated graph serves as a prototypical explanation of what the model considers class $c$.
+\end{problem}
+
+\noindent The pipeline has three stages:
+\begin{enumerate}
+    \item \textbf{Train} a $k$-GNN classifier $f_\theta$ on $\mathcal{D}$ (Section~\ref{sec:kgnn}).
+    \item \textbf{Train} a GIN-Graph generator $G_\phi$ to produce explanation graphs guided by $f_\theta$ (Section~\ref{sec:gin}).
+    \item \textbf{Evaluate} generated explanations via composite metrics (Section~\ref{sec:metrics}).
+\end{enumerate}
+
+%=============================================================================
+\section{Stage 1: $k$-GNN Classification}\label{sec:kgnn}
+%=============================================================================
+
+\subsection{The Weisfeiler--Leman Hierarchy}
+
+The $k$-dimensional Weisfeiler--Leman ($k$-WL) test is a hierarchy of graph isomorphism tests. Each level $k$ defines a message-passing scheme over $k$-element subsets (``$k$-sets'') of nodes.
+
+\begin{definition}[$k$-Set]
+For a graph $G = (V, E)$ with $|V| = n$, the set of $k$-element subsets is
+\[
+\binom{V}{k} = \{ S \subseteq V : |S| = k \}.
+\]
+The total number of $k$-sets is $\binom{n}{k} = \frac{n!}{k!(n-k)!}$.
+\end{definition}
+
+\begin{definition}[$k$-Set Neighbourhood (Morris et al.)]
+Two $k$-sets $S, S'$ are \emph{neighbours}, written $S \sim S'$, if and only if they differ in exactly one element, and the removed and added elements are adjacent:
+\[
+S \sim S' \iff |S \triangle S'| = 2 \;\;\text{and}\;\; \exists\, u \in S \setminus S',\; w \in S' \setminus S : (u, w) \in E.
+\]
+Equivalently, $S' = (S \setminus \{u\}) \cup \{w\}$ where $u \in S$, $w \notin S$, and $(u, w) \in E$.
+\end{definition}
+
+\subsection{1-GNN (Standard Message Passing)}\label{sec:1gnn}
+
+A 1-GNN operates on individual nodes $v \in V$. At each layer $t \in \{1, \ldots, T\}$:
+\begin{equation}\label{eq:1gnn}
+\mathbf{h}_v^{(t)} = \sigma\!\left( \mathbf{h}_v^{(t-1)} \mathbf{W}_1^{(t)} + \sum_{u \in \mathcal{N}(v)} \mathbf{h}_u^{(t-1)} \mathbf{W}_2^{(t)} \right)
+\end{equation}
+where $\mathbf{h}_v^{(0)} = \mathbf{x}_v \in \mathbb{R}^d$ (input features), $\mathcal{N}(v) = \{u : (u,v) \in E\}$, and $\sigma = \ReLU$. The weight matrices are:
+\begin{equation}
+\mathbf{W}_1^{(t)} \in \mathbb{R}^{d_{t-1} \times d_t}, \quad \mathbf{W}_2^{(t)} \in \mathbb{R}^{d_{t-1} \times d_t}, \quad \text{(no bias)}
+\end{equation}
+
+\paragraph{Concrete dimensions.} With hidden dimension $d_h$ and $T = 3$ layers:
+\begin{align}
+\text{Layer 1:} \quad & \mathbf{W}_1^{(1)}, \mathbf{W}_2^{(1)} \in \mathbb{R}^{d \times d_h} \label{eq:1gnn_dims1}\\
+\text{Layer 2:} \quad & \mathbf{W}_1^{(2)}, \mathbf{W}_2^{(2)} \in \mathbb{R}^{d_h \times d_h} \\
+\text{Layer 3:} \quad & \mathbf{W}_1^{(3)}, \mathbf{W}_2^{(3)} \in \mathbb{R}^{d_h \times d_h} \label{eq:1gnn_dims3}
+\end{align}
+The \texttt{OneGNNLayer} implementation uses PyTorch Geometric's \texttt{MessagePassing} with \texttt{aggr='add'}. The \texttt{message} function applies $\mathbf{W}_2$ to source node features, and aggregation sums over neighbours.
+
+\paragraph{Matrix form (dense).} For a batch of graphs with shared node count $n$:
+\begin{equation}\label{eq:1gnn_dense}
+\mathbf{H}^{(t)} = \sigma\!\left( \mathbf{H}^{(t-1)} \mathbf{W}_1^{(t)} + \mathbf{A}\, \mathbf{H}^{(t-1)} \mathbf{W}_2^{(t)} \right), \quad \mathbf{H}^{(t)} \in \mathbb{R}^{n \times d_t}
+\end{equation}
+where $\mathbf{A} \in \mathbb{R}^{n \times n}$ is the adjacency matrix. The matrix product $\mathbf{A}\, \mathbf{H}^{(t-1)}$ computes the neighbourhood aggregation: row $v$ of the result is $\sum_{u \in \mathcal{N}(v)} \mathbf{h}_u^{(t-1)}$. This form is fully differentiable with respect to $\mathbf{A}$, which is critical for GIN-Graph training (Section~\ref{sec:wrapper}).
+
+\paragraph{Batched form.} For a batch of $B$ graphs with fixed node count $n$:
+\begin{equation}
+\mathbf{H}^{(t)} = \sigma\!\left( \mathbf{H}^{(t-1)} \mathbf{W}_1^{(t)} + \texttt{bmm}(\mathbf{A},\, \mathbf{H}^{(t-1)} \mathbf{W}_2^{(t)}) \right), \quad \mathbf{H}^{(t)} \in \mathbb{R}^{B \times n \times d_t}
+\end{equation}
+where $\texttt{bmm}$ is batched matrix multiplication: $[\mathbf{A}]_b \cdot [\mathbf{H}^{(t-1)} \mathbf{W}_2^{(t)}]_b$ for each $b \in \{1, \ldots, B\}$.
+
+\paragraph{Graph-level readout.}
+\begin{equation}
+\mathbf{z}_G^{(1)} = \sum_{v \in V} \mathbf{h}_v^{(T)} \in \mathbb{R}^{d_h}
+\end{equation}
+This is a sum pool (\texttt{global\_add\_pool}), not mean pool, which preserves graph-size information.
+
+\subsection{2-GNN (Pair Message Passing)}\label{sec:2gnn}
+
+A 2-GNN operates on ordered pairs $\{u, v\} \in \binom{V}{2}$ with $u < v$ (canonical ordering).
+
+\paragraph{Initial features.} For each pair $\{u, v\}$ with $u < v$:
+\begin{equation}\label{eq:2gnn_init}
+\mathbf{f}_{\{u,v\}}^{(0)} = \left[ \mathbf{h}_u^{(T)} \;\|\; \mathbf{h}_v^{(T)} \;\|\; \mathbf{A}_{uv} \right] \in \mathbb{R}^{2d_h + 1}
+\end{equation}
+where $\|$ denotes concatenation, $\mathbf{h}_u^{(T)}, \mathbf{h}_v^{(T)}$ are the final 1-GNN node embeddings (so the 2-GNN receives preprocessed features), and $\mathbf{A}_{uv} \in \{0, 1\}$ is the \emph{iso-type}: 1 if $(u,v) \in E$, 0 otherwise.
+
+\begin{remark}[Canonical ordering]
+The ordering convention places the node with the smaller index first: $\mathbf{f}_{\{i,j\}} = [\mathbf{h}_{\min(i,j)} \| \mathbf{h}_{\max(i,j)} \| \mathbf{A}_{ij}]$. This ensures each unordered pair $\{i,j\}$ has a unique canonical feature representation regardless of the order in which $i$ and $j$ are enumerated.
+\end{remark}
+
+\paragraph{Message passing.} At each layer $t \in \{1, \ldots, T_2\}$ (with $T_2 = 2$ by default):
+\begin{equation}\label{eq:2gnn}
+\mathbf{f}_S^{(t)} = \sigma\!\left( \mathbf{f}_S^{(t-1)} \mathbf{W}_1^{(t)} + \sum_{S' \sim S} \mathbf{f}_{S'}^{(t-1)} \mathbf{W}_2^{(t)} \right)
+\end{equation}
+This uses \texttt{KSetLayer}, which implements the aggregation via \texttt{index\_add\_}:
+\begin{enumerate}
+    \item Compute $\mathbf{g}_{S'} = \mathbf{f}_{S'}^{(t-1)} \mathbf{W}_2^{(t)}$ for all source $k$-sets $S'$.
+    \item For each edge $(S' \to S)$, accumulate $\mathbf{g}_{S'}$ into position $S$ using \texttt{index\_add\_}.
+    \item Add the self-transform $\mathbf{f}_S^{(t-1)} \mathbf{W}_1^{(t)}$ and apply $\sigma$.
+\end{enumerate}
+
+\paragraph{Concrete dimensions.} With $T_2 = 2$ layers:
+\begin{align}
+\text{Layer 1:} \quad & \mathbf{W}_1^{(1)}, \mathbf{W}_2^{(1)} \in \mathbb{R}^{(2d_h + 1) \times d_h} \\
+\text{Layer 2:} \quad & \mathbf{W}_1^{(2)}, \mathbf{W}_2^{(2)} \in \mathbb{R}^{d_h \times d_h}
+\end{align}
+
+\paragraph{Neighbourhood enumeration.} For a pair $\{u, v\}$, the neighbours per the Morris et al.\ definition decompose into two cases:
+\begin{itemize}
+    \item \textbf{Case 1: Replace $u$ with $w$.} Target pair $\{v, w\}$ (with $w \neq u, v$ and $(u, w) \in E$). The adjacency condition ensures that the removed element $u$ is adjacent to the newly added element $w$.
+    \item \textbf{Case 2: Replace $v$ with $w$.} Target pair $\{u, w\}$ (with $w \neq u, v$ and $(v, w) \in E$).
+\end{itemize}
+
+\paragraph{Dense formulation.} Storing all pair features in a tensor $\mathbf{F} \in \mathbb{R}^{n \times n \times d}$ (where $\mathbf{F}_{ij}$ holds the features for pair $\{i,j\}$), the neighbour aggregation decomposes into:
+\begin{align}
+\text{agg}_1[i,j] &= \sum_w \mathbf{A}_{iw} \cdot \mathbf{G}[j,w] \quad &\text{(replace $i$ with $w$, need $(i,w)\in E$)} \label{eq:agg1}\\
+\text{agg}_2[i,j] &= \sum_w \mathbf{A}_{jw} \cdot \mathbf{G}[i,w] \quad &\text{(replace $j$ with $w$, need $(j,w)\in E$)} \label{eq:agg2}
+\end{align}
+where $\mathbf{G} = \mathbf{F}\mathbf{W}_2 \in \mathbb{R}^{n \times n \times d_h}$.
+
+\begin{proposition}[Equivalence to Morris et al.]
+The einsum formulation
+\begin{equation}\label{eq:einsum}
+\text{agg}_1 = \texttt{einsum}(\texttt{`biw,bjwd->bijd'}, \mathbf{A}, \mathbf{G}), \quad
+\text{agg}_2 = \texttt{einsum}(\texttt{`bjw,biwd->bijd'}, \mathbf{A}, \mathbf{G})
+\end{equation}
+computes exactly the Morris et al.\ neighbourhood aggregation for 2-sets, where $b$ indexes the batch, $i$ and $j$ index the pair elements, $w$ indexes the summation over potential replacement nodes, and $d$ indexes the feature dimension.
+\end{proposition}
+\begin{proof}
+For $\text{agg}_1$: the $(b,i,j,d)$ entry is $\sum_w \mathbf{A}_b[i,w] \cdot \mathbf{G}_b[j,w,d]$. Since $\mathbf{A}_b[i,w] = 1$ only when $(i,w) \in E$, and $\mathbf{G}_b[j,w,d]$ is the transformed feature of pair $\{j,w\}$, this sums over all neighbours $\{j,w\}$ of $\{i,j\}$ obtained by replacing $i$ with some $w$ adjacent to $i$. This matches Case~1 of the Morris definition. The argument for $\text{agg}_2$ is symmetric.
+
+The two aggregations combined give the full neighbourhood sum. Note that self-loops are removed ($\mathbf{A}$ has zero diagonal) to prevent $w = i$ or $w = j$.
+\end{proof}
+
+\paragraph{Graph-level readout.} Pool over unique pairs (upper triangle only, matching the canonical ordering $i < j$):
+\begin{equation}
+\mathbf{z}_G^{(2)} = \sum_{i < j} \mathbf{f}_{\{i,j\}}^{(T_2)} \in \mathbb{R}^{d_h}
+\end{equation}
+In the dense formulation, this is implemented as:
+\begin{equation}
+\mathbf{z}_G^{(2)} = \sum_{i=1}^{n} \sum_{j=i+1}^{n} \mathbf{F}_{ij}^{(T_2)} = \left(\mathbf{F}^{(T_2)} \odot \mathbf{M}_\text{triu}\right) \!.\text{sum}(\text{dims}=(1,2))
+\end{equation}
+where $\mathbf{M}_\text{triu}$ is the upper-triangular mask with ones above the diagonal.
+
+\subsection{3-GNN (Triplet Message Passing)}\label{sec:3gnn}
+
+A 3-GNN operates on 3-element subsets $\{a, b, c\} \in \binom{V}{3}$ with $a < b < c$.
+
+\paragraph{Initial features.}
+\begin{equation}\label{eq:3gnn_init}
+\mathbf{f}_{\{a,b,c\}}^{(0)} = \left[ \mathbf{h}_a^{(T)} \;\|\; \mathbf{h}_b^{(T)} \;\|\; \mathbf{h}_c^{(T)} \;\|\; \text{iso}(\{a,b,c\}) \right] \in \mathbb{R}^{3d_h + 4}
+\end{equation}
+The iso-type encodes the number of edges among the three nodes as a one-hot vector in $\mathbb{R}^4$:
+\begin{equation}
+e = |\{(a,b),(b,c),(a,c)\} \cap E| \in \{0,1,2,3\}
+\end{equation}
+\begin{equation}
+\text{iso}(\{a,b,c\}) = \mathbf{e}_e \in \{0,1\}^4
+\end{equation}
+where $\mathbf{e}_e$ is the standard basis vector with 1 at position $e$. The four iso-types correspond to: no edges (independent set), one edge (path endpoint), two edges (path or wedge), three edges (triangle).
+
+\paragraph{Soft iso-type (for generator gradient flow).} When $\mathbf{A}$ contains continuous values from the generator:
+\begin{equation}\label{eq:soft_iso}
+e_{\text{soft}} = \mathbf{A}_{ab} + \mathbf{A}_{bc} + \mathbf{A}_{ac} \in [0, 3]
+\end{equation}
+\begin{equation}\label{eq:triangular_basis}
+\text{iso}_k = \max\!\left(0,\; 1 - |e_{\text{soft}} - k|\right), \quad k \in \{0, 1, 2, 3\}
+\end{equation}
+This is a \emph{triangular basis function} centered at each integer $k$. Properties:
+\begin{itemize}
+    \item At integer values: $e_\text{soft} = m \implies \text{iso}_m = 1$ and $\text{iso}_k = 0$ for $|k - m| \geq 1$. Recovers exact one-hot encoding.
+    \item Between integers: e.g., $e_\text{soft} = 1.3 \implies \text{iso}_1 = 0.7,\; \text{iso}_2 = 0.3$. Smoothly interpolates.
+    \item Partition of unity: $\sum_{k=0}^{3} \text{iso}_k = 1$ for $e_\text{soft} \in [0, 3]$.
+    \item Differentiable: $\partial\, \text{iso}_k / \partial\, \mathbf{A}_{ab}$ exists almost everywhere (piecewise linear).
+\end{itemize}
+
+\paragraph{Concrete dimensions.} With $T_3 = 2$ layers:
+\begin{align}
+\text{Layer 1:} \quad & \mathbf{W}_1^{(1)}, \mathbf{W}_2^{(1)} \in \mathbb{R}^{(3d_h + 4) \times d_h} \\
+\text{Layer 2:} \quad & \mathbf{W}_1^{(2)}, \mathbf{W}_2^{(2)} \in \mathbb{R}^{d_h \times d_h}
+\end{align}
+
+\paragraph{Neighbourhood enumeration.} For a triplet $\{a, b, c\}$, three replacement cases:
+\begin{itemize}
+    \item \textbf{Case 1: Replace $c$ with $d$.} Need $(c, d) \in E$, target $\{a, b, d\}$.
+    \item \textbf{Case 2: Replace $b$ with $d$.} Need $(b, d) \in E$, target $\{a, c, d\}$.
+    \item \textbf{Case 3: Replace $a$ with $d$.} Need $(a, d) \in E$, target $\{b, c, d\}$.
+\end{itemize}
+Each target triplet is sorted to canonical form ($\min < \text{mid} < \max$) for lookup.
+
+\paragraph{Message passing.} Same form as Equation~\eqref{eq:2gnn}, but over 3-set neighbours using \texttt{KSetLayer} with the same \texttt{index\_add\_} aggregation.
+
+\paragraph{Scalability.} Full enumeration of 3-sets requires $\binom{n}{3}$ elements. For a graph with $n = 620$ nodes (PROTEINS), $\binom{620}{3} \approx 39.5\text{M}$ triplets, requiring $\sim$30\,GB of feature memory at $d_h = 64$. The implementation therefore samples up to $M$ triplets randomly:
+\[
+\mathcal{T} \subseteq \binom{V}{3}, \quad |\mathcal{T}| \leq M = 3000
+\]
+Similarly, 2-sets are sampled with $M_2 = 5000$ for large graphs. Canonical encoding and binary search (\texttt{searchsorted}) are used for efficient $k$-set lookup, replacing dense $\mathcal{O}(n^k)$ lookup tables with $\mathcal{O}(M \log M)$ operations.
+
+\subsection{Hierarchical Models}\label{sec:hierarchical}
+
+The hierarchical models stack $k$-GNN levels, using lower-level embeddings as input to higher levels.
+
+\paragraph{1-2-GNN (\texttt{Hierarchical12GNN}).}
+\begin{enumerate}
+    \item Run $T_1 = 3$ layers of 1-GNN (Eq.~\ref{eq:1gnn}) to get node embeddings $\mathbf{h}_v^{(T_1)} \in \mathbb{R}^{d_h}$.
+    \item Compute sum-pooled 1-GNN embedding: $\mathbf{z}_G^{(1)} = \sum_v \mathbf{h}_v^{(T_1)} \in \mathbb{R}^{d_h}$.
+    \item Build pair features using Eq.~\eqref{eq:2gnn_init} from the 1-GNN embeddings.
+    \item Run $T_2 = 2$ layers of 2-GNN (Eq.~\ref{eq:2gnn}) on the pair features.
+    \item Compute sum-pooled 2-GNN embedding: $\mathbf{z}_G^{(2)} \in \mathbb{R}^{d_h}$.
+    \item Concatenate and classify:
+\end{enumerate}
+\begin{equation}\label{eq:12gnn}
+\hat{\mathbf{y}} = \text{Classifier}_{12}\!\left( \left[\mathbf{z}_G^{(1)} \;\|\; \mathbf{z}_G^{(2)}\right] \right), \quad \left[\mathbf{z}_G^{(1)} \;\|\; \mathbf{z}_G^{(2)}\right] \in \mathbb{R}^{2d_h}
+\end{equation}
+
+\paragraph{1-2-3-GNN (\texttt{Hierarchical123GNN}).} Same as above, adding a 3-GNN branch:
+\begin{enumerate}
+    \item Run 1-GNN ($T_1 = 3$ layers) $\to$ $\mathbf{z}_G^{(1)} \in \mathbb{R}^{d_h}$.
+    \item Run 2-GNN ($T_2 = 2$ layers) using 1-GNN embeddings $\to$ $\mathbf{z}_G^{(2)} \in \mathbb{R}^{d_h}$.
+    \item Build triplet features using Eq.~\eqref{eq:3gnn_init} from the 1-GNN embeddings.
+    \item Run 3-GNN ($T_3 = 2$ layers) on the triplet features $\to$ $\mathbf{z}_G^{(3)} \in \mathbb{R}^{d_h}$.
+    \item Concatenate and classify:
+\end{enumerate}
+\begin{equation}\label{eq:123gnn}
+\hat{\mathbf{y}} = \text{Classifier}_{123}\!\left( \left[\mathbf{z}_G^{(1)} \;\|\; \mathbf{z}_G^{(2)} \;\|\; \mathbf{z}_G^{(3)}\right] \right), \quad \left[\mathbf{z}_G^{(1)} \;\|\; \mathbf{z}_G^{(2)} \;\|\; \mathbf{z}_G^{(3)}\right] \in \mathbb{R}^{3d_h}
+\end{equation}
+
+\paragraph{Classifier MLP.} All models use a 2-layer MLP with dropout:
+\begin{equation}\label{eq:classifier}
+\text{Classifier}(\mathbf{z}) = \mathbf{W}_\text{out}\, \ReLU\!\left(\mathbf{W}_\text{hid}\, \mathbf{z} + \mathbf{b}_\text{hid}\right) + \mathbf{b}_\text{out}
+\end{equation}
+with dropout ($p = 0.5$) applied after the ReLU. The weight dimensions depend on the model:
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Model} & $\mathbf{W}_\text{hid}$ & \textbf{Dropout} & $\mathbf{W}_\text{out}$ \\
+\midrule
+1-GNN & $\mathbb{R}^{d_h \times d_h}$ & $p = 0.5$ & $\mathbb{R}^{d_h \times C}$ \\
+1-2-GNN & $\mathbb{R}^{2d_h \times d_h}$ & $p = 0.5$ & $\mathbb{R}^{d_h \times C}$ \\
+1-2-3-GNN & $\mathbb{R}^{3d_h \times d_h}$ & $p = 0.5$ & $\mathbb{R}^{d_h \times C}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{$k$-GNN Training Procedure}\label{sec:kgnn_training}
+
+\paragraph{Loss function.} Standard cross-entropy over graph labels:
+\begin{equation}\label{eq:ce_loss}
+\mathcal{L}_\text{CE}(\theta) = -\frac{1}{|\mathcal{B}|}\sum_{(G, y) \in \mathcal{B}} \log \frac{\exp(f_\theta(G)_y)}{\sum_{j=0}^{C-1} \exp(f_\theta(G)_j)}
+\end{equation}
+where $\mathcal{B}$ is a mini-batch and $f_\theta(G)_y$ is the logit for the true class.
+
+\paragraph{Optimizer.} Adam with learning rate $\eta = 0.01$ and default momentum parameters $(\beta_1, \beta_2) = (0.9, 0.999)$:
+\begin{equation}
+\theta_{t+1} = \theta_t - \eta \cdot \frac{\hat{m}_t}{\sqrt{\hat{v}_t} + \epsilon}
+\end{equation}
+where $\hat{m}_t$ and $\hat{v}_t$ are bias-corrected first and second moment estimates of the gradient.
+
+\paragraph{Training protocol.}
+\begin{itemize}
+    \item Dataset split: 80\% train, 20\% test (fixed random seed 42).
+    \item Batch size: 32 graphs per mini-batch.
+    \item Epochs: 100 (default).
+    \item Model selection: track best test accuracy across epochs; restore best model weights at the end.
+    \item No learning rate scheduling, no weight decay, no data augmentation.
+\end{itemize}
+
+\paragraph{Parameter counts.} For MUTAG ($d = 7$, $d_h = 64$, $C = 2$):
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{1-GNN params} & \textbf{2-GNN params} & \textbf{3-GNN params} & \textbf{Classifier} \\
+\midrule
+1-GNN & $2d \cdot d_h + 4d_h^2$ & --- & --- & $d_h^2 + d_h C$ \\
+ & $= 17{,}280$ & & & $= 4{,}224$ \\
+\midrule
+1-2-GNN & $17{,}280$ & $2(2d_h+1)d_h + 2d_h^2$ & --- & $2d_h^2 + d_h C$ \\
+ & & $= 24{,}704$ & & $= 8{,}320$ \\
+\midrule
+1-2-3-GNN & $17{,}280$ & $24{,}704$ & $2(3d_h+4)d_h + 2d_h^2$ & $3d_h^2 + d_h C$ \\
+ & & & $= 33{,}280$ & $= 12{,}416$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+(All counts include both $\mathbf{W}_1$ and $\mathbf{W}_2$ per layer; classifier includes biases.)
+
+%=============================================================================
+\section{Stage 2: GIN-Graph Explanation Generator}\label{sec:gin}
+%=============================================================================
+
+\subsection{Architecture Overview}
+
+The GIN-Graph system is a conditional GAN that generates explanation graphs. It consists of:
+\begin{itemize}
+    \item A \textbf{generator} $G_\phi: \mathbb{R}^{d_z} \to (\tilde{\mathbf{A}}, \tilde{\mathbf{X}})$ that maps noise to graphs.
+    \item A \textbf{discriminator} $D_\psi: (\mathbf{A}, \mathbf{X}) \to \mathbb{R}$ that scores graph realism.
+    \item The \textbf{pretrained $k$-GNN} $f_\theta$ (frozen) that provides classification guidance.
+\end{itemize}
+
+\subsection{Generator Architecture}\label{sec:generator}
+
+\subsubsection{Backbone MLP}
+
+A noise vector $\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{I}_{d_z})$ with $d_z = 32$ is transformed by a 2-layer MLP:
+\begin{align}
+\mathbf{a}_1 &= \LeakyReLU_{0.2}\!\left(\mathbf{W}_1^\text{bb}\, \mathbf{z} + \mathbf{b}_1^\text{bb}\right) \in \mathbb{R}^{d_g} \label{eq:gen_layer1}\\
+\mathbf{a}_2 &= \text{Dropout}_{p_g}\!\left(\LeakyReLU_{0.2}\!\left(\mathbf{W}_2^\text{bb}\, \mathbf{a}_1 + \mathbf{b}_2^\text{bb}\right)\right) \in \mathbb{R}^{2d_g} \label{eq:gen_layer2}
+\end{align}
+where $d_g$ is the generator hidden dimension (default $d_g = 128$), $p_g = 0$ (dropout disabled by default), and:
+\begin{equation}
+\LeakyReLU_\alpha(x) = \begin{cases} x & \text{if } x \geq 0 \\ \alpha x & \text{if } x < 0 \end{cases}, \quad \alpha = 0.2
+\end{equation}
+
+The weight dimensions are:
+\begin{align}
+\mathbf{W}_1^\text{bb} &\in \mathbb{R}^{d_g \times d_z}, \quad \mathbf{b}_1^\text{bb} \in \mathbb{R}^{d_g} \quad &(d_z = 32 \to d_g = 128)\\
+\mathbf{W}_2^\text{bb} &\in \mathbb{R}^{2d_g \times d_g}, \quad \mathbf{b}_2^\text{bb} \in \mathbb{R}^{2d_g} \quad &(d_g = 128 \to 2d_g = 256)
+\end{align}
+
+\subsubsection{Adjacency Head}
+
+Raw logits are projected from the backbone output, reshaped to $[n, n]$, and symmetrised:
+\begin{equation}
+\mathbf{L}_\text{raw} = \text{reshape}\!\left(\mathbf{W}_\text{adj}\, \mathbf{a}_2 + \mathbf{b}_\text{adj},\; [n, n]\right), \quad \mathbf{W}_\text{adj} \in \mathbb{R}^{n^2 \times 2d_g}
+\end{equation}
+\begin{equation}
+\mathbf{L} = \frac{\mathbf{L}_\text{raw} + \mathbf{L}_\text{raw}^\top}{2}
+\end{equation}
+This symmetrisation of the \emph{logits} (before Gumbel-Softmax) ensures both $(i,j)$ and $(j,i)$ receive the same input probability. For MUTAG ($n = 28$): $\mathbf{W}_\text{adj} \in \mathbb{R}^{784 \times 256}$ ($\sim$201K parameters).
+
+\subsubsection{Gumbel-Softmax Reparameterisation}\label{sec:gumbel}
+
+To make discrete edge sampling differentiable, we use the Gumbel-Softmax trick with a straight-through estimator.
+
+\paragraph{The Gumbel-Max trick.} To sample from a categorical distribution with logits $\ell_1, \ldots, \ell_K$:
+\begin{equation}
+\text{sample} = \arg\max_k \left(\ell_k + g_k\right), \quad g_k \sim \text{Gumbel}(0, 1)
+\end{equation}
+where $g_k = -\log(-\log(u_k))$, $u_k \sim \text{Uniform}(0, 1)$. This is exact but non-differentiable due to $\arg\max$.
+
+\paragraph{Gumbel-Softmax relaxation (Jang et al., 2017; Maddison et al., 2017).} Replace $\arg\max$ with $\softmax$ at temperature $\tau$:
+\begin{equation}\label{eq:gumbel_softmax}
+y_k = \frac{\exp\!\left((\ell_k + g_k)/\tau\right)}{\sum_{j=1}^{K} \exp\!\left((\ell_j + g_j)/\tau\right)}, \quad k = 1, \ldots, K
+\end{equation}
+As $\tau \to 0$, $\mathbf{y}$ approaches a one-hot vector (recovering the discrete sample). As $\tau \to \infty$, $\mathbf{y}$ approaches a uniform distribution.
+
+\paragraph{Straight-through estimator (\texttt{hard=True}).} For edge sampling, we need discrete $\{0, 1\}$ values in the forward pass but continuous gradients in the backward pass:
+\begin{equation}
+\textbf{Forward:} \quad \hat{y}_k = \begin{cases} 1 & \text{if } k = \arg\max_j\, y_j \\ 0 & \text{otherwise} \end{cases}
+\end{equation}
+\begin{equation}
+\textbf{Backward:} \quad \frac{\partial \hat{y}_k}{\partial \ell_m} \approx \frac{\partial y_k}{\partial \ell_m} = \frac{\partial}{\partial \ell_m}\left[\frac{\exp((\ell_k + g_k)/\tau)}{\sum_j \exp((\ell_j + g_j)/\tau)}\right]
+\end{equation}
+Implemented as: $\hat{\mathbf{y}} = \text{one\_hot}(\arg\max(\mathbf{y})) - \text{sg}(\mathbf{y}) + \mathbf{y}$, where $\text{sg}$ is stop-gradient. The gradient of this expression is $\partial \hat{\mathbf{y}}/\partial \bm{\ell} = \partial \mathbf{y}/\partial \bm{\ell}$ since $\text{sg}$ blocks the gradient of the first two terms, and only $\mathbf{y}$ contributes.
+
+\paragraph{Application to edge sampling.} For each entry $(i, j)$ of the adjacency matrix, we construct a 2-class logit vector:
+\begin{equation}
+\bm{\ell}_{ij} = \left[\mathbf{L}_{ij},\; -\mathbf{L}_{ij}\right] \in \mathbb{R}^2
+\end{equation}
+and apply Gumbel-Softmax:
+\begin{equation}
+\tilde{\mathbf{A}}_{ij} = \GumbelSoftmax(\bm{\ell}_{ij},\, \tau)_0
+\end{equation}
+where subscript 0 selects the ``edge present'' class. The probability of an edge (before Gumbel noise) is:
+\begin{equation}
+P(\text{edge at } (i,j)) = \sigma(2\mathbf{L}_{ij}) = \frac{1}{1 + \exp(-2\mathbf{L}_{ij})}
+\end{equation}
+since the logit difference is $\mathbf{L}_{ij} - (-\mathbf{L}_{ij}) = 2\mathbf{L}_{ij}$.
+
+\paragraph{Temperature during training vs.\ evaluation.}
+\begin{itemize}
+    \item \textbf{Training} ($\tau = 1.0$): Higher temperature allows more exploration. The continuous gradients have moderate variance.
+    \item \textbf{Evaluation} ($\tau = 0.1$): Lower temperature produces sharper, near-discrete outputs. The generator exploits learned logit patterns.
+\end{itemize}
+
+\subsubsection{Post-Gumbel Symmetrisation (Critical)}\label{sec:symmetrisation}
+
+Since Gumbel noise $g_k$ is sampled independently for each $(i,j)$ and $(j,i)$ entry, we get $\tilde{\mathbf{A}}_{ij} \neq \tilde{\mathbf{A}}_{ji}$ even though the logits were symmetrised. We enforce symmetry using only the upper triangle:
+\begin{equation}\label{eq:sym}
+\mathbf{U} = \triu(\tilde{\mathbf{A}}, \text{diagonal}=1), \quad
+\tilde{\mathbf{A}} \leftarrow \mathbf{U} + \mathbf{U}^\top
+\end{equation}
+
+\begin{remark}[Why not average?]
+The naive approach $\tilde{\mathbf{A}} \leftarrow (\tilde{\mathbf{A}} + \tilde{\mathbf{A}}^\top)/2$ creates entries equal to $0.5$ when exactly one of $(i,j)$ or $(j,i)$ was sampled as an edge by Gumbel-Softmax with \texttt{hard=True}. During evaluation, edges are thresholded at $> 0.5$, so all $0.5$-valued entries are \emph{discarded}. This creates a systematic train--eval mismatch:
+\begin{itemize}
+    \item \textbf{During training}: the degree loss sees continuous values with average degree $\approx \mu_c$ (correct).
+    \item \textbf{During evaluation}: thresholding drops $\sim$50\% of edges (those that were $0.5$), reducing average degree to $\approx \mu_c / 2$ and making degree score $d \approx \exp(-(\mu_c/2)^2 / (2\sigma_c^2)) \approx 0$.
+\end{itemize}
+On MUTAG ($\sigma_c \approx 0.07$), this resulted in 0\% valid explanations. The upper-triangle approach in Eq.~\eqref{eq:sym} ensures each edge is decided by exactly one Gumbel sample, producing strictly $\{0, 1\}$ values.
+\end{remark}
+
+\subsubsection{Node Feature Head}
+
+Raw logits for node types are projected and sampled via categorical Gumbel-Softmax:
+\begin{equation}
+\tilde{\mathbf{X}}_\text{raw} = \text{reshape}\!\left(\mathbf{W}_\text{feat}\, \mathbf{a}_2 + \mathbf{b}_\text{feat},\; [n, d]\right), \quad \mathbf{W}_\text{feat} \in \mathbb{R}^{nd \times 2d_g}
+\end{equation}
+\begin{equation}
+\tilde{\mathbf{X}} = \GumbelSoftmax\!\left(\tilde{\mathbf{X}}_\text{raw},\; \tau,\; \text{dim}=-1\right) \in \{0,1\}^{n \times d}
+\end{equation}
+Each row is a one-hot vector selecting a node type from $d$ categories. For MUTAG: $d = 7$ atom types, $\mathbf{W}_\text{feat} \in \mathbb{R}^{196 \times 256}$.
+
+\subsubsection{Generator Parameter Summary}
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Component} & \textbf{Dimensions} & \textbf{Parameters} \\
+\midrule
+Backbone layer 1 & $\mathbb{R}^{d_z} \to \mathbb{R}^{d_g}$ & $d_z \cdot d_g + d_g$ \\
+Backbone layer 2 & $\mathbb{R}^{d_g} \to \mathbb{R}^{2d_g}$ & $d_g \cdot 2d_g + 2d_g$ \\
+Adjacency head & $\mathbb{R}^{2d_g} \to \mathbb{R}^{n^2}$ & $2d_g \cdot n^2 + n^2$ \\
+Feature head & $\mathbb{R}^{2d_g} \to \mathbb{R}^{nd}$ & $2d_g \cdot nd + nd$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+For MUTAG ($d_z = 32$, $d_g = 128$, $n = 28$, $d = 7$): backbone $= 37{,}248$, adj head $= 201{,}488$, feat head $= 50{,}372$. Total $\approx$ 289K parameters.
+
+\subsection{Discriminator Architecture}\label{sec:discriminator}
+
+\subsubsection{Dense GCN Layers}
+
+The discriminator uses a 2-layer dense GCN. Each \texttt{DenseGCNLayer} implements:
+\begin{equation}\label{eq:dense_gcn}
+\mathbf{H}^{(l+1)} = \sigma\!\left(\hat{\mathbf{A}}\, \mathbf{H}^{(l)}\, \mathbf{W}^{(l)}\right)
+\end{equation}
+where the normalised adjacency with self-loops is:
+\begin{equation}
+\hat{\mathbf{A}} = \tilde{\mathbf{D}}^{-1}\, \tilde{\mathbf{A}}, \quad \tilde{\mathbf{A}} = \mathbf{A} + \mathbf{I}_n, \quad \tilde{\mathbf{D}} = \diag\!\left(\tilde{\mathbf{A}}\, \mathbf{1}\right)
+\end{equation}
+This is a \emph{row-normalised} adjacency (each row sums to 1), equivalent to:
+\begin{equation}
+\hat{\mathbf{A}}_{ij} = \frac{\tilde{\mathbf{A}}_{ij}}{\sum_k \tilde{\mathbf{A}}_{ik}} = \frac{\mathbf{A}_{ij} + \delta_{ij}}{\deg(i) + 1}
+\end{equation}
+The message-passing interpretation: each node's representation is the weighted average of its neighbours' transformed features (including itself via the self-loop).
+
+\paragraph{Implementation detail.} The degree is clamped to minimum 1 to avoid division by zero for isolated nodes:
+\begin{equation}
+\hat{\mathbf{A}}_{ij} = \frac{\tilde{\mathbf{A}}_{ij}}{\max\!\left(1,\, \sum_k \tilde{\mathbf{A}}_{ik}\right)}
+\end{equation}
+
+\paragraph{Concrete dimensions.} With $\sigma = \ReLU$ and hidden dimension $d_g$:
+\begin{align}
+\text{Layer 1:} \quad & \mathbf{W}^{(1)} \in \mathbb{R}^{d \times d_g}, \quad \mathbf{b}^{(1)} \in \mathbb{R}^{d_g} \quad (d \to d_g) \\
+\text{Layer 2:} \quad & \mathbf{W}^{(2)} \in \mathbb{R}^{d_g \times d_g}, \quad \mathbf{b}^{(2)} \in \mathbb{R}^{d_g} \quad (d_g \to d_g)
+\end{align}
+
+\subsubsection{Graph-Level Output}
+
+After the GCN layers, a graph-level embedding is computed via mean pooling, followed by an MLP:
+\begin{equation}
+\bar{\mathbf{h}} = \frac{1}{n}\sum_{v=1}^{n} \mathbf{h}_v^{(2)} \in \mathbb{R}^{d_g}
+\end{equation}
+\begin{equation}
+D_\psi(\mathbf{X}, \mathbf{A}) = \mathbf{W}_3^\text{D}\, \LeakyReLU_{0.2}\!\left(\mathbf{W}_2^\text{D}\, \bar{\mathbf{h}} + \mathbf{b}_2^\text{D}\right) + \mathbf{b}_3^\text{D} \in \mathbb{R}
+\end{equation}
+with $\mathbf{W}_2^\text{D} \in \mathbb{R}^{d_g \times d_g}$ and $\mathbf{W}_3^\text{D} \in \mathbb{R}^{1 \times d_g}$.
+
+\begin{remark}[No sigmoid]
+The discriminator outputs a raw score (not a probability), consistent with the WGAN framework where $D_\psi$ approximates the Wasserstein distance rather than a classifier.
+\end{remark}
+
+\subsection{WGAN-GP Training}\label{sec:wgan}
+
+\subsubsection{Discriminator Loss}
+
+The discriminator maximises the Wasserstein distance between real and fake distributions, subject to a gradient penalty:
+\begin{equation}\label{eq:d_loss}
+\mathcal{L}_D = \underbrace{\mathbb{E}_{\tilde{G} \sim G_\phi}[D_\psi(\tilde{G})]}_{\text{fake score (push down)}} - \underbrace{\mathbb{E}_{G \sim \mathcal{D}_c}[D_\psi(G)]}_{\text{real score (push up)}} + \underbrace{\lambda_\text{GP} \cdot \mathcal{L}_\text{GP}}_{\text{gradient penalty}}
+\end{equation}
+where $\mathcal{D}_c$ is the subset of training graphs with label $c$.
+
+\subsubsection{Gradient Penalty}
+
+For interpolated samples between real and fake:
+\begin{align}
+\epsilon &\sim \text{Uniform}(0, 1) \\
+\hat{\mathbf{X}} &= \epsilon\, \mathbf{X}_\text{real} + (1 - \epsilon)\, \tilde{\mathbf{X}} \\
+\hat{\mathbf{A}} &= \epsilon\, \mathbf{A}_\text{real} + (1 - \epsilon)\, \tilde{\mathbf{A}}
+\end{align}
+The gradient penalty enforces the 1-Lipschitz constraint:
+\begin{equation}\label{eq:gp}
+\mathcal{L}_\text{GP} = \mathbb{E}_\epsilon\!\left[\left( \left\|\nabla_{(\hat{\mathbf{X}}, \hat{\mathbf{A}})} D_\psi(\hat{\mathbf{X}}, \hat{\mathbf{A}})\right\|_2 - 1 \right)^2\right]
+\end{equation}
+The gradient is computed jointly over both inputs by flattening $\nabla_{\hat{\mathbf{X}}} \in \mathbb{R}^{nD}$ and $\nabla_{\hat{\mathbf{A}}} \in \mathbb{R}^{n^2}$, then computing the L2 norm of the concatenated vector:
+\begin{equation}
+\left\|\nabla_{(\hat{\mathbf{X}}, \hat{\mathbf{A}})} D_\psi\right\|_2 = \sqrt{\|\nabla_{\hat{\mathbf{X}}} D_\psi\|_2^2 + \|\nabla_{\hat{\mathbf{A}}} D_\psi\|_2^2}
+\end{equation}
+Default: $\lambda_\text{GP} = 10$.
+
+\subsubsection{Real Data Preparation}
+
+Real graphs from $\mathcal{D}_c$ are converted to dense format $(\mathbf{X}_\text{real}, \mathbf{A}_\text{real}) \in \mathbb{R}^{n \times d} \times \mathbb{R}^{n \times n}$ by:
+\begin{itemize}
+    \item \textbf{Graphs with $< n$ nodes}: zero-pad features and adjacency to size $n$.
+    \item \textbf{Graphs with $> n$ nodes}: truncate to first $n$ nodes, filter edges to only include nodes $< n$.
+    \item \textbf{Graphs with exactly $n$ nodes}: use directly.
+\end{itemize}
+
+\subsubsection{Discriminator Training Step}
+
+\begin{algorithm}[H]
+\caption{Single Discriminator Step}
+\begin{algorithmic}[1]
+\Require Real batch $(\mathbf{X}_r, \mathbf{A}_r)$, batch size $B$
+\State Sample $\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{I}_{d_z})^B$
+\State $(\tilde{\mathbf{A}}, \tilde{\mathbf{X}}) \gets G_\phi(\mathbf{z}, \tau)$ \Comment{Generate fake graphs}
+\State $s_r \gets D_\psi(\mathbf{X}_r, \mathbf{A}_r)$ \Comment{Score real}
+\State $s_f \gets D_\psi(\text{sg}(\tilde{\mathbf{X}}), \text{sg}(\tilde{\mathbf{A}}))$ \Comment{Score fake (detached)}
+\State Compute $\mathcal{L}_\text{GP}$ via Eq.~\eqref{eq:gp}
+\State $\mathcal{L}_D \gets \text{mean}(s_f) - \text{mean}(s_r) + \lambda_\text{GP} \cdot \mathcal{L}_\text{GP}$
+\State Update $\psi$ via Adam to minimise $\mathcal{L}_D$
+\end{algorithmic}
+\end{algorithm}
+
+\noindent The discriminator is trained $n_\text{critic} = 1$ times per generator update (reduced from the standard WGAN-GP $n_\text{critic} = 5$ since the GNN guidance loss also stabilises training).
+
+\subsection{Dense Forward Pass Through Pretrained $k$-GNN}\label{sec:wrapper}
+
+The generator produces dense matrices $(\tilde{\mathbf{A}}, \tilde{\mathbf{X}}) \in \mathbb{R}^{B \times n \times n} \times \mathbb{R}^{B \times n \times d}$, but the pretrained $k$-GNN was trained on sparse PyTorch Geometric graph data. A differentiable \emph{wrapper} (\texttt{DenseToSparseWrapper}) converts between these representations while preserving gradient flow through $\tilde{\mathbf{A}}$.
+
+\subsubsection{1-GNN Wrapper (Fully Differentiable)}
+
+Direct application of the batched dense form (Eq.~\ref{eq:1gnn_dense}) using the pretrained \texttt{OneGNNLayer} weights:
+\begin{equation}
+\mathbf{H}^{(t)} = \texttt{layer.activation}\!\left(\texttt{layer.W1}(\mathbf{H}^{(t-1)}) + \texttt{bmm}(\tilde{\mathbf{A}},\, \texttt{layer.W2}(\mathbf{H}^{(t-1)}))\right)
+\end{equation}
+Graph embedding: $\mathbf{z}_G^{(1)} = \sum_{v} \mathbf{h}_v^{(T)}$ (sum over node dimension).
+
+\textbf{Gradient flow}: $\tilde{\mathbf{A}}$ appears explicitly in the matrix multiplication, so $\partial \mathcal{L} / \partial \tilde{\mathbf{A}}_{ij}$ propagates through all $T$ layers. Each layer contributes:
+\begin{equation}
+\frac{\partial \mathbf{H}^{(t)}}{\partial \tilde{\mathbf{A}}_{ij}} = \sigma'\!\left(\cdot\right) \cdot \mathbf{e}_i\, (\mathbf{H}^{(t-1)} \mathbf{W}_2^{(t)})_j^\top
+\end{equation}
+where $\mathbf{e}_i$ is the $i$-th standard basis vector and $\sigma'$ is the ReLU derivative.
+
+\subsubsection{2-GNN Wrapper (Fully Differentiable)}
+
+\paragraph{Step 1: Build canonical pair features.}
+For each $(i, j)$ with $i < j$ (upper triangle) and $i > j$ (lower triangle), construct features with consistent canonical ordering:
+\begin{equation}
+\mathbf{F}_{ij} = \begin{cases}
+[\mathbf{h}_i \| \mathbf{h}_j \| \tilde{\mathbf{A}}_{ij}] & \text{if } i < j \\
+[\mathbf{h}_j \| \mathbf{h}_i \| \tilde{\mathbf{A}}_{ij}] & \text{if } i > j
+\end{cases}
+\end{equation}
+In compact form using upper/lower masks:
+\begin{align}
+\text{first}  &= \mathbf{h}_i \cdot \mathbb{1}[i<j] + \mathbf{h}_j \cdot \mathbb{1}[i>j] \\
+\text{second} &= \mathbf{h}_j \cdot \mathbb{1}[i<j] + \mathbf{h}_i \cdot \mathbb{1}[i>j] \\
+\mathbf{F}_{ij} &= [\text{first} \| \text{second} \| \tilde{\mathbf{A}}_{ij}] \in \mathbb{R}^{2d_h + 1}
+\end{align}
+The iso-type $\tilde{\mathbf{A}}_{ij}$ is continuous (not thresholded), preserving gradient flow.
+
+\paragraph{Step 2: Apply pretrained 2-GNN layers.}
+Self-loops are removed from $\tilde{\mathbf{A}}$ to prevent a pair from being its own neighbour:
+\begin{equation}
+\mathbf{A}_\text{clean} = \tilde{\mathbf{A}} \odot (\mathbf{1} - \mathbf{I}_n)
+\end{equation}
+Then the einsum aggregation (Eq.~\ref{eq:einsum}) is applied with $\mathbf{A}_\text{clean}$.
+
+\paragraph{Step 3: Pool upper triangle.}
+\begin{equation}
+\mathbf{z}_G^{(2)} = \left(\mathbf{F}^{(T_2)} \odot \mathbf{M}_\text{triu}\right).\text{sum}(\text{dims}=(1,2))
+\end{equation}
+
+\textbf{Gradient flow}: $\tilde{\mathbf{A}}$ appears in three places: (a) the iso-type feature, (b) the einsum aggregation weights, and (c) the pair-to-pair connectivity. All three paths are differentiable.
+
+\subsubsection{3-GNN Wrapper (Partial Gradient Flow)}
+
+Full dense 3-GNN would require $\mathbf{F} \in \mathbb{R}^{B \times n \times n \times n \times d}$, which is $\mathcal{O}(Bn^3 d)$ in memory. Instead, a hybrid approach is used:
+
+\begin{enumerate}
+    \item \textbf{Structure} (triplet selection, edge construction): computed with \texttt{torch.no\_grad()} using binarised $\tilde{\mathbf{A}}$ (threshold at 0.5). \textbf{No gradient.}
+    \item \textbf{Node features}: $\mathbf{h}_a, \mathbf{h}_b, \mathbf{h}_c$ from the dense 1-GNN path. \textbf{Gradient flows.}
+    \item \textbf{Iso-types}: soft iso-types from continuous $\tilde{\mathbf{A}}$ via Eq.~\eqref{eq:triangular_basis}. \textbf{Gradient flows.}
+    \item \textbf{Message passing}: runs through pretrained \texttt{KSetLayer} weights using \texttt{index\_add\_} on the sparse triplet graph. \textbf{Gradient flows through features.}
+\end{enumerate}
+
+This gives \emph{partial} gradient flow: the generator can optimise the soft iso-types (edge probabilities within triplets) and node features, but cannot change which triplets exist or how they connect. In practice, the 1-GNN and 2-GNN components dominate the gradient signal.
+
+\subsection{Training Objective}\label{sec:training_objective}
+
+\subsubsection{Generator Loss}
+
+The generator loss combines three terms with dynamic weighting:
+\begin{equation}\label{eq:gen_loss}
+\mathcal{L}_G = (1 - \lambda_t)\, \mathcal{L}_\text{GAN} + \lambda_t\, \mathcal{L}_\text{GNN} + \mathcal{L}_\text{degree}
+\end{equation}
+
+\paragraph{GAN loss.} Encourages realistic graphs:
+\begin{equation}\label{eq:gan_loss}
+\mathcal{L}_\text{GAN} = -\frac{1}{B}\sum_{b=1}^{B} D_\psi(G_\phi(\mathbf{z}_b))
+\end{equation}
+Minimising this pushes the discriminator score of fake graphs \emph{up}, making them score closer to real graphs.
+
+\paragraph{GNN guidance loss.} Encourages target-class classification through the frozen pretrained $k$-GNN:
+\begin{equation}\label{eq:gnn_loss}
+\mathcal{L}_\text{GNN} = \frac{1}{B}\sum_{b=1}^{B} \text{CE}\!\left(f_\theta(\tilde{\mathbf{X}}_b, \tilde{\mathbf{A}}_b),\; c\right) = -\frac{1}{B}\sum_{b=1}^{B} \log \frac{\exp(f_\theta(\tilde{G}_b)_c)}{\sum_{j=0}^{C-1} \exp(f_\theta(\tilde{G}_b)_j)}
+\end{equation}
+The gradient $\partial \mathcal{L}_\text{GNN}/\partial \phi$ flows through: the dense wrapper (Section~\ref{sec:wrapper}) $\to$ the Gumbel-Softmax (Section~\ref{sec:gumbel}) $\to$ the generator backbone.
+
+\paragraph{Degree regularisation loss.} Penalises deviation from class-specific degree statistics:
+\begin{equation}\label{eq:degree_loss}
+\mathcal{L}_\text{degree} = \lambda_d \cdot \frac{1}{B}\sum_{b=1}^{B} \left(\frac{\bar{d}_b - \mu_c}{\sigma_c}\right)^2
+\end{equation}
+where:
+\begin{itemize}
+    \item $\bar{d}_b = 2|\tilde{E}_b| / |\tilde{V}_b|$ is the average degree of generated graph $b$.
+    \item $|\tilde{E}_b| = \sum_{i<j} \tilde{\mathbf{A}}_{ij}^{(b)}$ (continuous edge count during training).
+    \item $|\tilde{V}_b| = \sum_i \mathbb{1}[\sum_j \tilde{\mathbf{A}}_{ij}^{(b)} > 0.5]$ (active node count, clamped $\geq 1$).
+    \item $\mu_c, \sigma_c$ are the mean and standard deviation of average degrees in class $c$.
+    \item $\lambda_d = 1.0$ is the base weight (default).
+\end{itemize}
+
+\begin{remark}[Auto-scaling property]
+The normalisation by $\sigma_c$ makes the loss scale-invariant across datasets:
+\begin{equation}
+\frac{\partial \mathcal{L}_\text{degree}}{\partial \bar{d}_b} = \frac{2\lambda_d}{B} \cdot \frac{\bar{d}_b - \mu_c}{\sigma_c^2}
+\end{equation}
+For MUTAG ($\sigma_c \approx 0.07$): gradient magnitude $\propto 1/0.07^2 \approx 204$. A deviation of 0.1 produces gradient $\approx 29$.\\
+For PROTEINS ($\sigma_c \approx 0.42$): gradient magnitude $\propto 1/0.42^2 \approx 5.7$. A deviation of 0.1 produces gradient $\approx 1.4$.\\
+This means the loss automatically enforces tighter degree control on datasets with narrower degree distributions.
+\end{remark}
+
+\begin{remark}[Gradient through $\bar{d}_b$]
+Since $\bar{d}_b = 2 \sum_{i<j} \tilde{\mathbf{A}}_{ij} / |\tilde{V}_b|$ and $\tilde{\mathbf{A}}_{ij}$ are continuous during training (Gumbel-Softmax), the gradient flows:
+\begin{equation}
+\frac{\partial \bar{d}_b}{\partial \tilde{\mathbf{A}}_{ij}} = \frac{2}{|\tilde{V}_b|} \quad \text{for } i < j
+\end{equation}
+(assuming $|\tilde{V}_b|$ is treated as constant, which the implementation does by computing it without gradient).
+\end{remark}
+
+\subsubsection{Dynamic Weighting Schedule}\label{sec:dynamic_weighting}
+
+The weight $\lambda_t$ controls the balance between GAN and GNN losses. It follows a sigmoid schedule:
+
+\paragraph{Schedule function.} Given total iterations $T$, transition point $p \in [0, 1]$, steepness $k > 0$:
+\begin{equation}\label{eq:lambda_schedule}
+\lambda_t = \lambda_\text{min} + (\lambda_\text{max} - \lambda_\text{min}) \cdot \sigma\!\left(k \cdot \left(\frac{2(t/T - p)}{1 - p} - 1\right)\right)
+\end{equation}
+where $\sigma(x) = 1/(1+e^{-x})$ is the sigmoid function. Default parameters: $\lambda_\text{min} = 0$, $\lambda_\text{max} = 1$, $p = 0.4$, $k = 10$.
+
+\paragraph{Normalised progress.} The argument to the sigmoid maps the training progress to $[-k, k]$:
+\begin{equation}
+\xi(t) = k \cdot \left(\frac{2(t/T - p)}{1 - p} - 1\right)
+\end{equation}
+Key values:
+\begin{itemize}
+    \item At $t = 0$: $\xi = k \cdot (2(-p)/(1-p) - 1) = k \cdot (-(2p+1-p)/(1-p)) = -k \cdot (1+p)/(1-p)$. For $p = 0.4$: $\xi = -10 \cdot 1.4/0.6 \approx -23.3$, so $\sigma(\xi) \approx 0$ and $\lambda_0 \approx 0$.
+    \item At $t = pT$ (transition point): $\xi = k \cdot (0 - 1) = -k = -10$, so $\sigma(-10) \approx 0.000045$ and $\lambda \approx 0$.
+    \item At $t = (1+p)T/2$ (midpoint of active phase): $\xi = 0$, so $\sigma(0) = 0.5$ and $\lambda = 0.5$.
+    \item At $t = T$: $\xi = k \cdot (2/(1-p) - 2/(1-p) + 2p/(1-p)/(1-p) \cdot\ldots)$. For $p = 0.4$: $\xi = 10 \cdot 1 = 10$, so $\sigma(10) \approx 1$ and $\lambda_T \approx 1$.
+\end{itemize}
+
+\paragraph{Derivative of $\lambda_t$.}
+\begin{equation}
+\frac{d\lambda_t}{dt} = (\lambda_\text{max} - \lambda_\text{min}) \cdot \sigma(\xi)\,(1 - \sigma(\xi)) \cdot \frac{2k}{T(1 - p)}
+\end{equation}
+The maximum rate of change occurs at $\xi = 0$ (where $\sigma(\xi)(1-\sigma(\xi)) = 1/4$):
+\begin{equation}
+\left.\frac{d\lambda_t}{dt}\right|_\text{max} = \frac{k(\lambda_\text{max} - \lambda_\text{min})}{2T(1 - p)}
+\end{equation}
+For $k = 10$, $T = 2400$ (300 epochs $\times$ 8 batches), $p = 0.4$: max rate $\approx 0.0035$ per iteration.
+
+\paragraph{Intuition.}
+\begin{itemize}
+    \item \textbf{Early training} ($t < pT$): $\lambda_t \approx 0$, so $\mathcal{L}_G \approx \mathcal{L}_\text{GAN} + \mathcal{L}_\text{degree}$. The generator learns realistic graph structures and degree distributions without class-specific pressure.
+    \item \textbf{Transition} ($t \approx pT$ to $t \approx T$): $\lambda_t$ smoothly increases from 0 to 1.
+    \item \textbf{Late training} ($t \approx T$): $\lambda_t \approx 1$, so $\mathcal{L}_G \approx \mathcal{L}_\text{GNN} + \mathcal{L}_\text{degree}$. The generator produces class-specific graphs while the degree loss maintains structural validity.
+\end{itemize}
+
+\subsubsection{Generator Training Step}
+
+\begin{algorithm}[H]
+\caption{Single Generator Step}
+\begin{algorithmic}[1]
+\Require Batch size $B$, current $\lambda_t$
+\State Sample $\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{I}_{d_z})^B$
+\State $(\tilde{\mathbf{A}}, \tilde{\mathbf{X}}) \gets G_\phi(\mathbf{z}, \tau=1.0, \text{hard}=\text{True})$
+\State $\mathcal{L}_\text{GAN} \gets -\text{mean}(D_\psi(\tilde{\mathbf{X}}, \tilde{\mathbf{A}}))$
+\State $\bm{\ell} \gets f_\theta(\tilde{\mathbf{X}}, \tilde{\mathbf{A}})$ \Comment{Forward through frozen $k$-GNN via dense wrapper}
+\State $\mathcal{L}_\text{GNN} \gets \text{CE}(\bm{\ell},\; c \cdot \mathbf{1}_B)$
+\State $\mathcal{L}_\text{degree} \gets$ Eq.~\eqref{eq:degree_loss}
+\State $\mathcal{L}_G \gets (1 - \lambda_t)\, \mathcal{L}_\text{GAN} + \lambda_t\, \mathcal{L}_\text{GNN} + \mathcal{L}_\text{degree}$
+\State Update $\phi$ via Adam to minimise $\mathcal{L}_G$
+\end{algorithmic}
+\end{algorithm}
+
+\subsubsection{Optimiser Details}
+
+Both generator and discriminator use Adam with:
+\begin{equation}
+\text{lr} = 0.001, \quad \beta_1 = 0.5, \quad \beta_2 = 0.999
+\end{equation}
+The reduced $\beta_1 = 0.5$ (vs.\ default 0.9) is standard practice for GAN training, reducing momentum to prevent oscillation between the generator and discriminator.
+
+%=============================================================================
+\section{Stage 3: Evaluation}\label{sec:metrics}
+%=============================================================================
+
+\subsection{Evaluation Protocol}
+
+At evaluation time, the generator produces $N_\text{samples}$ (default 100) explanation graphs with low temperature:
+\begin{equation}
+(\tilde{\mathbf{A}}_i, \tilde{\mathbf{X}}_i) = G_\phi(\mathbf{z}_i, \tau = 0.1, \text{hard} = \text{True}), \quad \mathbf{z}_i \sim \mathcal{N}(\mathbf{0}, \mathbf{I}_{d_z})
+\end{equation}
+The low temperature ($\tau = 0.1$ vs.\ $\tau = 1.0$ during training) produces sharper discrete outputs.
+
+Each graph is then evaluated through the frozen pretrained $k$-GNN (using the same dense wrapper as training) to obtain class probabilities.
+
+\subsection{Per-Graph Metrics}
+
+For each generated graph $\tilde{G}$, we compute:
+
+\paragraph{Edge thresholding.} The evaluation operates on hard-thresholded adjacency:
+\begin{equation}
+\mathbf{A}^\text{eval}_{ij} = \begin{cases} 1 & \text{if } \tilde{\mathbf{A}}_{ij} > 0.5 \\ 0 & \text{otherwise} \end{cases}
+\end{equation}
+Self-loops are removed: $\mathbf{A}^\text{eval}_{ii} = 0$. Symmetry is enforced: $\mathbf{A}^\text{eval} = \max(\mathbf{A}^\text{eval}, (\mathbf{A}^\text{eval})^\top)$.
+
+\paragraph{Active nodes and edges.}
+\begin{align}
+\text{degree}(v) &= \sum_{u} \mathbf{A}^\text{eval}_{vu} \\
+\tilde{V} &= \{v : \text{degree}(v) > 0\}, \quad |\tilde{V}| = \text{active nodes} \\
+|\tilde{E}| &= \frac{1}{2}\sum_{i,j} \mathbf{A}^\text{eval}_{ij}, \quad \bar{d} = \frac{2|\tilde{E}|}{|\tilde{V}|}
+\end{align}
+
+\paragraph{Prediction probability.}
+\begin{equation}
+p = \softmax(f_\theta(\tilde{G}))_c = \frac{\exp(f_\theta(\tilde{G})_c)}{\sum_j \exp(f_\theta(\tilde{G})_j)}
+\end{equation}
+
+\paragraph{Embedding similarity.} Cosine similarity between $\tilde{G}$'s embedding and the class centroid:
+\begin{equation}
+s = \frac{\mathbf{z}_{\tilde{G}} \cdot \bar{\mathbf{z}}_c}{\|\mathbf{z}_{\tilde{G}}\| \cdot \|\bar{\mathbf{z}}_c\|}, \quad \bar{\mathbf{z}}_c = \frac{1}{|\mathcal{D}_c|}\sum_{G \in \mathcal{D}_c} \mathbf{z}_G
+\end{equation}
+
+\begin{remark}[Current simplification]
+The implementation currently sets $s = p$ (embedding similarity equals prediction probability), making the effective validation score $v = (p^2 \cdot d)^{1/3}$. Computing the true centroid $\bar{\mathbf{z}}_c$ would require a forward pass over the entire training set of class $c$ to collect embeddings.
+\end{remark}
+
+\paragraph{Degree score.} Gaussian kernel measuring structural plausibility:
+\begin{equation}\label{eq:degree_score}
+d = \exp\!\left(-\frac{(\bar{d} - \mu_c)^2}{2\sigma_c^2}\right) \in [0, 1]
+\end{equation}
+This is maximised ($d = 1$) when $\bar{d} = \mu_c$ and decays exponentially. The decay rate depends on $\sigma_c$:
+\begin{itemize}
+    \item MUTAG ($\sigma_c \approx 0.07$): $d$ drops below 0.5 when $|\bar{d} - \mu_c| > 0.083$. Very strict.
+    \item PROTEINS ($\sigma_c \approx 0.42$): $d$ drops below 0.5 when $|\bar{d} - \mu_c| > 0.50$. More forgiving.
+\end{itemize}
+
+\paragraph{Validation score.} Geometric mean of the three components:
+\begin{equation}\label{eq:validation}
+v = (s \cdot p \cdot d)^{1/3}
+\end{equation}
+The geometric mean is sensitive to low values in \emph{any} component --- a graph cannot achieve $v > 0.5$ unless all of $s, p, d > 0.125$.
+
+\paragraph{Validity.} A graph is ``valid'' if both conditions hold:
+\begin{enumerate}
+    \item Degree within tolerance: $|\bar{d} - \mu_c| \leq 3\sigma_c$
+    \item Score above threshold: $v \geq 0.5$
+\end{enumerate}
+
+\paragraph{Granularity.} Measures how much smaller the explanation is than typical graphs:
+\begin{equation}
+\kappa = 1 - \min\!\left(1, \frac{|\tilde{V}|}{\bar{n}_c}\right) \in [0, 1)
+\end{equation}
+where $\bar{n}_c$ is the mean node count in class $c$. High $\kappa$ means a fine-grained (small, focused) explanation.
+
+%=============================================================================
+\section{Gradient Flow Analysis}\label{sec:gradients}
+%=============================================================================
+
+Understanding where gradients flow (and don't) is critical for interpreting what the generator can optimise.
+
+\subsection{Full Gradient Decomposition}
+
+\begin{equation}
+\frac{\partial \mathcal{L}_G}{\partial \phi} =
+\frac{\partial \mathcal{L}_G}{\partial \tilde{\mathbf{A}}} \cdot \frac{\partial \tilde{\mathbf{A}}}{\partial \phi}
++ \frac{\partial \mathcal{L}_G}{\partial \tilde{\mathbf{X}}} \cdot \frac{\partial \tilde{\mathbf{X}}}{\partial \phi}
+\end{equation}
+
+\paragraph{Through $\tilde{\mathbf{A}}$.}
+\begin{itemize}
+    \item $\mathcal{L}_\text{GAN}$: Gradient flows through $D_\psi$, which uses $\tilde{\mathbf{A}}$ via $\hat{\mathbf{A}} = (\tilde{\mathbf{A}} + \mathbf{I})/\mathbf{D}$ in the DenseGCN layers. \checkmark
+    \item $\mathcal{L}_\text{GNN}$ (1-GNN): Flows through $\tilde{\mathbf{A}}\mathbf{H}\mathbf{W}_2$ at each layer. \checkmark
+    \item $\mathcal{L}_\text{GNN}$ (2-GNN): Flows through (a) iso-type feature $\tilde{\mathbf{A}}_{ij}$, (b) einsum aggregation $\sum_w \tilde{\mathbf{A}}_{iw} \cdot \mathbf{G}[j,w]$, (c) self-loop removal mask. \checkmark
+    \item $\mathcal{L}_\text{GNN}$ (3-GNN): Partial --- flows through soft iso-types (Eq.~\ref{eq:triangular_basis}) but not structure selection. $\sim$
+    \item $\mathcal{L}_\text{degree}$: $\bar{d} = \frac{2}{|\tilde{V}|}\sum_{i<j} \tilde{\mathbf{A}}_{ij}$, directly differentiable. \checkmark
+\end{itemize}
+
+\paragraph{Through $\tilde{\mathbf{X}}$.}
+\begin{itemize}
+    \item $\mathcal{L}_\text{GAN}$: Gradient flows through $D_\psi$ input layer. \checkmark
+    \item $\mathcal{L}_\text{GNN}$: Flows through the initial embedding $\mathbf{H}^{(0)} = \tilde{\mathbf{X}}$ in all $k$-GNN levels. \checkmark
+    \item $\mathcal{L}_\text{degree}$: No dependence on $\tilde{\mathbf{X}}$. ---
+\end{itemize}
+
+\subsection{Through Gumbel-Softmax}
+
+With \texttt{hard=True}, the straight-through estimator gives:
+\begin{equation}
+\frac{\partial \tilde{\mathbf{A}}_{ij}}{\partial \mathbf{L}_{ij}} \approx \frac{\partial \softmax([\mathbf{L}_{ij}/\tau, -\mathbf{L}_{ij}/\tau])_0}{\partial \mathbf{L}_{ij}}
+\end{equation}
+Let $q = \softmax([\mathbf{L}/\tau, -\mathbf{L}/\tau])_0 = \sigma(2\mathbf{L}/\tau)$. Then:
+\begin{equation}
+\frac{\partial q}{\partial \mathbf{L}} = \frac{2}{\tau}\, q\,(1 - q)
+\end{equation}
+At $\tau = 1$: derivative peaks at $\mathbf{L} = 0$ with value $0.5$, decays for large $|\mathbf{L}|$.
+At $\tau = 0.1$: derivative is sharply peaked around $\mathbf{L} = 0$ with peak value $5.0$.
+
+\subsection{Gradient Flow Summary by Model}
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Path} & \textbf{1-GNN} & \textbf{1-2-GNN} & \textbf{1-2-3-GNN} \\
+\midrule
+$\mathcal{L}_\text{GAN} \xrightarrow{\tilde{\mathbf{A}}} \phi$ & Full & Full & Full \\
+$\mathcal{L}_\text{GAN} \xrightarrow{\tilde{\mathbf{X}}} \phi$ & Full & Full & Full \\
+$\mathcal{L}_\text{GNN} \xrightarrow{\tilde{\mathbf{A}}} \phi$ (1-GNN) & Full & Full & Full \\
+$\mathcal{L}_\text{GNN} \xrightarrow{\tilde{\mathbf{A}}} \phi$ (2-GNN) & --- & Full & Full \\
+$\mathcal{L}_\text{GNN} \xrightarrow{\tilde{\mathbf{A}}} \phi$ (3-GNN) & --- & --- & Partial \\
+$\mathcal{L}_\text{degree} \xrightarrow{\tilde{\mathbf{A}}} \phi$ & Full & Full & Full \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%=============================================================================
+\section{Putting It All Together}
+%=============================================================================
+
+\begin{algorithm}[H]
+\caption{Full Pipeline}
+\begin{algorithmic}[1]
+\State \textbf{Input:} Dataset $\mathcal{D}$, target class $c$, model type $k \in \{1, 12, 123\}$
+\Statex
+\State \textbf{// Stage 1: Train $k$-GNN}
+\State Initialise $f_\theta$ with appropriate architecture (Section~\ref{sec:hierarchical})
+\For{epoch $= 1, \ldots, 100$}
+    \For{each batch $\mathcal{B} \subset \mathcal{D}_\text{train}$}
+        \State $\mathcal{L}_\text{CE} \gets$ Eq.~\eqref{eq:ce_loss}
+        \State Update $\theta$ via Adam($\eta = 0.01$)
+    \EndFor
+\EndFor
+\State Restore best $\theta$ (by test accuracy), freeze $\theta$
+\Statex
+\State \textbf{// Stage 2: Train GIN-Graph}
+\State Compute class stats: $\mu_c, \sigma_c, \bar{n}_c$ from $\mathcal{D}_c = \{G \in \mathcal{D} : y = c\}$
+\State Initialise generator $G_\phi$ (Section~\ref{sec:generator}), discriminator $D_\psi$ (Section~\ref{sec:discriminator})
+\State Initialise weight scheduler (Eq.~\ref{eq:lambda_schedule}) with $T = \text{epochs} \times |\mathcal{D}_c|/B$
+\For{epoch $t = 0, \ldots, 299$}
+    \For{each batch of $B$ graphs from $\mathcal{D}_c$}
+        \State \textbf{Discriminator:} $n_\text{critic} = 1$ steps of Algorithm~1
+        \State \textbf{Generator:} one step of Algorithm~2 with current $\lambda_t$
+    \EndFor
+\EndFor
+\Statex
+\State \textbf{// Stage 3: Generate and Evaluate}
+\For{$i = 1, \ldots, N_\text{samples}$}
+    \State $(\tilde{\mathbf{A}}_i, \tilde{\mathbf{X}}_i) = G_\phi(\mathbf{z}_i, \tau = 0.1)$
+    \State Forward through frozen $f_\theta$ via dense wrapper $\to$ compute $p_i$
+    \State Threshold $\tilde{\mathbf{A}}_i > 0.5$ $\to$ compute $\bar{d}_i, d_i, v_i, \kappa_i$
+\EndFor
+\State Rank by $v_i$, report top-$k$ explanations
+\end{algorithmic}
+\end{algorithm}
+
+%=============================================================================
+\section{Observed Results and Interpretation}
+%=============================================================================
+
+\subsection{Summary Table}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{llccccc}
+\toprule
+\textbf{Dataset} & \textbf{Model} & \textbf{Class} & \textbf{Test Acc} & \textbf{Valid \%} & \textbf{Val Score} & \textbf{Pred Prob} \\
+\midrule
+MUTAG & 1-GNN & 0 (Mutagen) & 86.8\% & 38\% & 0.396 & 1.000 \\
+MUTAG & 1-GNN & 1 (Non-Mut.) & 86.8\% & 100\% & 1.000 & 1.000 \\
+MUTAG & 1-2-GNN & 0 (Mutagen) & 89.5\% & 30\% & 0.304 & 1.000 \\
+MUTAG & 1-2-GNN & 1 (Non-Mut.) & 89.5\% & 94\% & 0.811 & 0.990 \\
+\midrule
+PROTEINS & 1-GNN & 0 (Non-Enz.) & 78.0\% & 100\% & 0.941 & 0.918 \\
+PROTEINS & 1-GNN & 1 (Enzyme) & 78.0\% & 100\% & 0.995 & 1.000 \\
+PROTEINS & 1-2-GNN$^\dagger$ & 0 (Non-Enz.) & 65.0\% & 97\% & 0.655 & 0.590 \\
+PROTEINS & 1-2-GNN$^\dagger$ & 1 (Enzyme) & 65.0\% & 44\% & 0.412 & 0.410 \\
+\bottomrule
+\end{tabular}
+\caption{Results across all configurations. $^\dagger$Only 30 epochs (vs.\ 300 for others).}
+\end{table}
+
+\subsection{Key Observations}
+
+\paragraph{1. Class asymmetry in MUTAG.} Class 1 (Non-Mutagen) is dramatically easier to explain than class 0 (Mutagen). This stems from two factors:
+\begin{itemize}
+    \item \textbf{Degree statistics}: MUTAG has $\sigma_c \approx 0.07$, making the degree score $d$ in Equation~\eqref{eq:degree_score} extremely sensitive. Even small structural deviations yield $d \approx 0$.
+    \item \textbf{Feature complexity}: Mutagenic compounds require specific functional groups (nitro groups, halogens), while non-mutagenic molecules are structurally simpler (carbon backbones).
+\end{itemize}
+
+\paragraph{2. Higher-order $\neq$ better explanations.} On MUTAG, the 1-GNN produces \emph{better} explanations than the 1-2-GNN despite lower classification accuracy. This is significant for the thesis question:
+\begin{itemize}
+    \item The 1-2-GNN has higher expressive power (can distinguish more graph structures).
+    \item But its explanations collapse to simpler structures (mostly carbon-only graphs).
+    \item This suggests the pair-level features in the 1-2-GNN encode \emph{structural patterns} rather than \emph{chemical features}, making it harder for the generator to satisfy both structure and chemistry simultaneously.
+\end{itemize}
+
+\paragraph{3. PROTEINS is more amenable.} The wider degree distribution ($\sigma_c \approx 0.42$) makes validity easier to achieve. The 1-GNN achieves near-perfect scores on both classes.
+
+%=============================================================================
+\section{Open Questions and Directions}\label{sec:open}
+%=============================================================================
+
+\begin{enumerate}
+    \item \textbf{Embedding similarity.} Currently $s = p$, so $v = (p^2 d)^{1/3}$. Computing the true class centroid $\bar{\mathbf{z}}_c$ would decouple prediction confidence from embedding space alignment. Does the generator produce graphs that cluster with real graphs in embedding space, or does it find adversarial shortcuts?
+
+    \item \textbf{1-2-3-GNN explanations.} The most expressive model has not been tested. The 3-GNN component has only partial gradient flow (structure is computed without gradients). Does this limitation prevent the generator from learning, or does the soft iso-type signal suffice?
+
+    \item \textbf{MUTAG class 0 difficulty.} The tight degree distribution ($\sigma = 0.07$) severely penalises the generator. Possible directions:
+    \begin{itemize}
+        \item Adaptive degree tolerance (wider early, tighter late)
+        \item Multi-scale degree loss (penalise both average degree and degree distribution shape)
+        \item Curriculum learning: start with relaxed validity, progressively tighten
+    \end{itemize}
+
+    \item \textbf{Expressiveness--interpretability tradeoff.} The 1-2-GNN is more expressive but produces less diverse explanations. Is this a fundamental tension? The $k$-WL hierarchy distinguishes more structures, but the space of ``maximally activating'' graphs may shrink as the model becomes more discriminative.
+
+    \item \textbf{Beyond degree score.} The current validity metric uses only average degree. Richer structural metrics could include:
+    \begin{itemize}
+        \item Clustering coefficient distribution
+        \item Motif counts (triangles, cycles)
+        \item Graph spectrum alignment (eigenvalues of the Laplacian)
+    \end{itemize}
+
+    \item \textbf{Temperature scheduling.} The Gumbel-Softmax temperature $\tau$ is fixed at 1.0 during training and 0.1 at evaluation. Annealing $\tau$ during training (high $\to$ low) could improve discrete structure quality.
+
+    \item \textbf{Per-class generator architecture.} Each GIN-Graph generator is trained for a single class. A class-conditional generator $G_\phi(\mathbf{z}, c)$ could share learned graph structure priors across classes while specialising the output.
+\end{enumerate}
+
+%=============================================================================
+\section{Notation Reference}
+%=============================================================================
+
+\begin{table}[h]
+\centering
+\begin{tabular}{ll}
+\toprule
+\textbf{Symbol} & \textbf{Meaning} \\
+\midrule
+$G = (V, E, \mathbf{X})$ & Graph with nodes, edges, features \\
+$\mathbf{A} \in \{0,1\}^{n \times n}$ & Adjacency matrix \\
+$\mathbf{X} \in \mathbb{R}^{n \times d}$ & Node feature matrix \\
+$d$ & Input feature dimension \\
+$d_h$ & $k$-GNN hidden dimension (default 64) \\
+$d_g$ & Generator/discriminator hidden dimension (default 128) \\
+$d_z$ & Latent noise dimension (default 32) \\
+$n$ & Maximum number of nodes for generation \\
+$C$ & Number of classes \\
+\midrule
+$\mathbf{h}_v^{(t)}$ & Node $v$ embedding at layer $t$ \\
+$\mathbf{f}_S^{(t)}$ & $k$-set $S$ embedding at layer $t$ \\
+$\mathbf{z}_G^{(k)}$ & Graph-level embedding from $k$-GNN level \\
+$\mathbf{W}_1, \mathbf{W}_2$ & Self-transform and neighbour-transform weights \\
+\midrule
+$f_\theta$ & Pretrained $k$-GNN classifier (frozen) \\
+$G_\phi$ & Generator network \\
+$D_\psi$ & Discriminator network \\
+$\tilde{\mathbf{A}}, \tilde{\mathbf{X}}$ & Generated adjacency / features \\
+\midrule
+$\tau$ & Gumbel-Softmax temperature \\
+$\lambda_t$ & Dynamic weight at step $t$ \\
+$\lambda_\text{GP}$ & Gradient penalty weight (default 10) \\
+$\lambda_d$ & Degree loss weight (default 1) \\
+$\mu_c, \sigma_c$ & Class $c$ degree mean / std \\
+$\bar{n}_c$ & Class $c$ mean node count \\
+\midrule
+$p$ & Prediction probability \\
+$s$ & Embedding similarity \\
+$d$ (metric) & Degree score \\
+$v$ & Validation score $(s \cdot p \cdot d)^{1/3}$ \\
+$\kappa$ & Granularity \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\end{document}

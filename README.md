@@ -153,6 +153,10 @@ The MUTAG dataset contains 188 molecular graphs classified as mutagenic or non-m
 - NH₂ groups (also mutagenic)
 - Carbon ring structures
 
+### Datasets
+
+Experiments are conducted on **MUTAG** and **PROTEINS**. The **DD** dataset is excluded from the current experiments due to its large graph sizes (up to 500 nodes) and high feature dimensionality (89 features), which make GIN-Graph training prohibitively slow and memory-intensive. DD support is retained in the codebase for future work.
+
 ### Hypothesis
 
 Higher-order k-GNNs should produce explanations that:

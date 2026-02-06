@@ -61,13 +61,15 @@ python research.py gin --model 123gnn --dataset mutag --target_class 0 --num_sam
 ```
 
 ### Supported Datasets
-| Dataset  | Graphs | Node Features | Max Nodes | GIN Gen Size | Description |
-|----------|--------|---------------|-----------|--------------|-------------|
-| MUTAG    | 188    | 7 (atoms)     | 28        | 28           | Mutagenic compounds |
-| DD       | 1178   | 89 (amino acids) | 500    | 80           | Large protein graphs |
-| PROTEINS | 1113   | 3 (secondary) | 620       | 50           | Protein structures |
+| Dataset  | Graphs | Node Features | Max Nodes | GIN Gen Size | Description | Status |
+|----------|--------|---------------|-----------|--------------|-------------|--------|
+| MUTAG    | 188    | 7 (atoms)     | 28        | 28           | Mutagenic compounds | Active |
+| PROTEINS | 1113   | 3 (secondary) | 620       | 50           | Protein structures | Active |
+| DD       | 1178   | 89 (amino acids) | 500    | 80           | Large protein graphs | Excluded |
 
 **Note**: `GIN Gen Size` is the max nodes for explanation generation. Large-graph datasets use smaller generation sizes for memory efficiency - explanations highlight key substructures, not full graphs.
+
+**DD dataset excluded**: DD is excluded from the current experiments due to its large graph sizes (up to 500 nodes) and high feature dimensionality (89 features), which make GIN-Graph training prohibitively slow and memory-intensive. The codebase retains DD support for future work.
 
 ## Architecture
 
