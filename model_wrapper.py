@@ -222,6 +222,21 @@ class DenseToSparseWrapper(nn.Module):
         emb3 = self._sparse_3gnn(h, adj)
         return self.sparse_model.classifier(torch.cat([emb1, emb2, emb3], dim=1))
 
+    def get_embedding(self, x: torch.Tensor, adj: torch.Tensor) -> torch.Tensor:
+        """Get graph embedding before classification (dense inputs)."""
+        if self.model_type == '1gnn':
+            h = self._dense_1gnn(x, adj)
+            return h.sum(dim=1)
+        elif self.model_type == '12gnn':
+            h = self._dense_1gnn(x, adj)
+            return torch.cat([h.sum(dim=1), self._dense_2gnn(h, adj)], dim=1)
+        elif self.model_type == '123gnn':
+            h = self._dense_1gnn(x, adj)
+            return torch.cat([h.sum(dim=1), self._dense_2gnn(h, adj),
+                              self._sparse_3gnn(h, adj)], dim=1)
+        else:
+            raise ValueError(f"Unsupported model type: {self.model_type}")
+
 
 # ==================== Utility Models ====================
 

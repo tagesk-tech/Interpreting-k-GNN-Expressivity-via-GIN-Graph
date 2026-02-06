@@ -178,7 +178,10 @@ def cmd_gin(args):
 
     # 4. Reconstruct trainer and load checkpoint
     data_config = DataConfig.from_dataset(dataset_name)
-    gin_config = GINGraphConfig()  # defaults are fine — only generator weights matter
+
+    # Read config from checkpoint to match hidden_dim used during training
+    gin_ckpt = torch.load(gin_path, map_location=device)
+    gin_config = gin_ckpt.get('config', GINGraphConfig())
 
     trainer = GINGraphTrainer(
         pretrained_gnn=pretrained_gnn,
@@ -193,6 +196,12 @@ def cmd_gin(args):
     trainer.load_checkpoint(gin_path)
     print(f"Loaded GIN checkpoint: {gin_path}")
     print(f"  Trained for {trainer.epoch} epochs, {trainer.global_step} steps")
+
+    # Compute class centroid if not in checkpoint (backwards compat)
+    if trainer.class_centroid is None:
+        print("  Computing class centroid from dataset...")
+        target_dataset = get_class_subset(dataset, target_class)
+        trainer.compute_class_centroid(target_dataset)
     print()
 
     # 5. Generate explanations

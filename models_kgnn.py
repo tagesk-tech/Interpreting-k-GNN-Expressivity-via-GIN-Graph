@@ -758,7 +758,7 @@ class Hierarchical12GNN(nn.Module):
 
         # 2-GNN using 1-GNN embeddings
         two_x, two_edges, two_batch = self._build_2sets(h, edge_index, batch)
-        
+
         if two_x is not None:
             h2 = two_x
             for layer in self.gnn2_layers:
@@ -766,9 +766,32 @@ class Hierarchical12GNN(nn.Module):
             graph_emb_2 = global_add_pool(h2, two_batch)
         else:
             graph_emb_2 = torch.zeros_like(graph_emb_1)
-        
+
         combined = torch.cat([graph_emb_1, graph_emb_2], dim=1)
         return self.classifier(combined)
+
+    def get_embedding(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> torch.Tensor:
+        """Get graph embedding before classification."""
+        h = x
+        for layer in self.gnn1_layers:
+            h = layer(h, edge_index)
+        graph_emb_1 = global_add_pool(h, batch)
+
+        two_x, two_edges, two_batch = self._build_2sets(h, edge_index, batch)
+        if two_x is not None:
+            h2 = two_x
+            for layer in self.gnn2_layers:
+                h2 = layer(h2, two_edges)
+            graph_emb_2 = global_add_pool(h2, two_batch)
+        else:
+            graph_emb_2 = torch.zeros_like(graph_emb_1)
+
+        return torch.cat([graph_emb_1, graph_emb_2], dim=1)
 
 
 class Hierarchical123GNN(nn.Module):
@@ -942,6 +965,38 @@ class Hierarchical123GNN(nn.Module):
         
         combined = torch.cat([graph_emb_1, graph_emb_2, graph_emb_3], dim=1)
         return self.classifier(combined)
+
+    def get_embedding(
+        self,
+        x: torch.Tensor,
+        edge_index: torch.Tensor,
+        batch: torch.Tensor
+    ) -> torch.Tensor:
+        """Get graph embedding before classification."""
+        h = x
+        for layer in self.gnn1_layers:
+            h = layer(h, edge_index)
+        graph_emb_1 = global_add_pool(h, batch)
+
+        two_x, two_edges, two_batch = self._build_2sets(h, edge_index, batch)
+        if two_x is not None:
+            h2 = two_x
+            for layer in self.gnn2_layers:
+                h2 = layer(h2, two_edges)
+            graph_emb_2 = global_add_pool(h2, two_batch)
+        else:
+            graph_emb_2 = torch.zeros_like(graph_emb_1)
+
+        three_x, three_edges, three_batch = self._build_3sets(h, edge_index, batch)
+        if three_x is not None:
+            h3 = three_x
+            for layer in self.gnn3_layers:
+                h3 = layer(h3, three_edges)
+            graph_emb_3 = global_add_pool(h3, three_batch)
+        else:
+            graph_emb_3 = torch.zeros_like(graph_emb_1)
+
+        return torch.cat([graph_emb_1, graph_emb_2, graph_emb_3], dim=1)
 
 
 # =============================================================================

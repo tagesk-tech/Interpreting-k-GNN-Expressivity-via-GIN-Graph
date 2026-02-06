@@ -99,6 +99,9 @@ class GINGraphTrainer:
         self.evaluator = ExplanationEvaluator(class_stats)
         self.class_stats = class_stats
         
+        # Class centroid for embedding similarity (computed lazily)
+        self.class_centroid = None
+
         # Training state
         self.epoch = 0
         self.global_step = 0
@@ -198,6 +201,32 @@ class GINGraphTrainer:
 
         return self.config.degree_lambda * degree_loss
 
+    def compute_class_centroid(self, dataset) -> None:
+        """
+        Compute the mean embedding of real graphs for the target class.
+
+        Uses the pretrained sparse k-GNN to embed each graph, then averages.
+        Stores result in self.class_centroid for use in generate_explanations().
+        """
+        from torch_geometric.loader import DataLoader as PyGLoader
+
+        sparse_model = self.pretrained_gnn.sparse_model
+        sparse_model.eval()
+
+        embeddings = []
+        loader = PyGLoader(dataset, batch_size=64, shuffle=False)
+
+        with torch.no_grad():
+            for batch in loader:
+                batch = batch.to(self.device)
+                emb = sparse_model.get_embedding(batch.x, batch.edge_index, batch.batch)
+                embeddings.append(emb)
+
+        all_emb = torch.cat(embeddings, dim=0)  # [num_graphs, emb_dim]
+        self.class_centroid = all_emb.mean(dim=0)  # [emb_dim]
+        # Normalize for cosine similarity
+        self.class_centroid = F.normalize(self.class_centroid, dim=0)
+
     def train_discriminator_step(
         self,
         real_x: torch.Tensor,
@@ -293,6 +322,10 @@ class GINGraphTrainer:
             checkpoint_interval: Save checkpoint + samples every N epochs (0 to disable)
             output_dir: Directory for intermediate checkpoints/samples (required if checkpoint_interval > 0)
         """
+        # Compute class centroid for embedding similarity
+        if self.class_centroid is None:
+            self.compute_class_centroid(dataset)
+
         # Create data loader
         train_loader = torch.utils.data.DataLoader(
             dataset,
@@ -414,10 +447,15 @@ class GINGraphTrainer:
             logits = self.pretrained_gnn(fake_x, fake_adj)
             probs = F.softmax(logits, dim=1)
             pred_probs = probs[:, self.target_class].cpu().numpy()
-            
-            # For embedding similarity, we'd need to compute embeddings
-            # For now, use prediction probability as a proxy
-            embedding_sims = pred_probs  # Simplified
+
+            # Compute embedding similarity to class centroid
+            if self.class_centroid is not None:
+                emb = self.pretrained_gnn.get_embedding(fake_x, fake_adj)
+                emb_norm = F.normalize(emb, dim=1)
+                cos_sim = (emb_norm @ self.class_centroid).clamp(min=0.0)
+                embedding_sims = cos_sim.cpu().numpy()
+            else:
+                embedding_sims = pred_probs  # Fallback if centroid not computed
         
         adjs = fake_adj.cpu().numpy()
         xs = fake_x.cpu().numpy()
@@ -445,6 +483,7 @@ class GINGraphTrainer:
             'target_class': self.target_class,
             'model_type': self.model_type,
             'history': self.history,
+            'class_centroid': self.class_centroid,
         }, path)
     
     def load_checkpoint(self, path: str):
@@ -457,6 +496,7 @@ class GINGraphTrainer:
         self.epoch = checkpoint['epoch']
         self.global_step = checkpoint['global_step']
         self.history = checkpoint['history']
+        self.class_centroid = checkpoint.get('class_centroid', None)
 
 
 def load_pretrained_kgnn(
