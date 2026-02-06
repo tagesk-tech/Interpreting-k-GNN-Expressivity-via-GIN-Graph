@@ -81,8 +81,8 @@ Dataset (MUTAG/DD/PROTEINS) → k-GNN Training → GIN-Graph Generation → Expl
 **Models (`models_kgnn.py`)**: k-GNN implementations using k-set message passing
 - `OneGNNLayer`: Standard node-level message passing
 - `KSetLayer`: Generic layer for 2-GNN (node pairs) and 3-GNN (triplets)
-- Hierarchical models (recommended for GIN-Graph): 1-GNN, 1-2-GNN, 1-2-3-GNN
-- Standalone models (on standby for GIN-Graph): 2-GNN, 3-GNN — available for k-GNN training but not recommended for GIN-Graph generation due to non-differentiable adjacency path
+- Supported models: **1-GNN, 1-2-GNN, 1-2-3-GNN** (hierarchical only)
+- Standalone 2-GNN/3-GNN class definitions remain in the file but are removed from all factories, CLIs, and tests
 - **k-Set Sampling**: For large graphs (PROTEINS, DD), k-sets are randomly sampled to limit memory/time:
   - `max_pairs=5000` for 2-sets (vs 192K pairs for 620-node graph)
   - `max_triplets=3000` for 3-sets (vs 39M triplets for 620-node graph)
@@ -95,9 +95,8 @@ Dataset (MUTAG/DD/PROTEINS) → k-GNN Training → GIN-Graph Generation → Expl
 **Model Wrapper (`model_wrapper.py`)**: Differentiable bridge between dense generator output and pretrained k-GNN
 - `DenseToSparseWrapper`: Uses dense forward passes for hierarchical models (1gnn, 12gnn, 123gnn)
   - **1-GNN**: Dense batched message passing `σ(H·W1 + A·H·W2)` — fully differentiable through adj
-  - **2-GNN**: Dense pair features `[h_i || h_j || adj[i,j]]` + einsum aggregation — fully differentiable through adj
+  - **2-GNN**: Dense pair features `[h_min || h_max || adj[i,j]]` + einsum aggregation — fully differentiable through adj
   - **3-GNN**: Optimized sparse with `torch.no_grad()` for structure + soft iso-types — partial gradient
-  - Standalone 2-GNN/3-GNN use sparse fallback (non-differentiable, not recommended for GIN-Graph)
 
 **Training (`train_gin_graph.py`)**: Joint optimization combining:
 - WGAN-GP loss (graph realism)

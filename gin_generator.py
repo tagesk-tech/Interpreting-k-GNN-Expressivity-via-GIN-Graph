@@ -97,6 +97,12 @@ class GINGenerator(nn.Module):
         # Stack as [batch, N, N, 2] for softmax over last dim
         adj_logits = torch.stack([raw_adj, -raw_adj], dim=-1)
         A_tilde = F.gumbel_softmax(adj_logits, tau=temperature, hard=hard)[:, :, :, 0]
+
+        # Symmetrize: each edge decided by ONE Gumbel sample (upper triangle),
+        # then mirrored. Averaging would create 0.5 values with hard=True,
+        # causing threshold-based evaluation to drop most edges.
+        upper = torch.triu(A_tilde, diagonal=1)
+        A_tilde = upper + upper.transpose(1, 2)
         
         # Node features: One-hot categorical
         X_tilde = F.gumbel_softmax(raw_feat, tau=temperature, hard=hard, dim=-1)

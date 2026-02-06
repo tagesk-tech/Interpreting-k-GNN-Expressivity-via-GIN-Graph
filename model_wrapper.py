@@ -5,9 +5,6 @@ Wrapper to convert sparse k-GNN models to accept dense inputs from the generator
 Provides fully differentiable dense forward passes for hierarchical models
 (1gnn, 12gnn, 123gnn), with gradient flow through both node features AND
 adjacency matrices. This is critical for GIN-Graph training.
-
-For standalone models (2gnn, 3gnn), falls back to sparse conversion
-(not recommended for GIN-Graph — see README).
 """
 
 import torch
@@ -21,11 +18,8 @@ class DenseToSparseWrapper(nn.Module):
     """
     Wraps a sparse k-GNN model to accept dense inputs (x, adj) from the Generator.
 
-    For hierarchical models (1gnn, 12gnn, 123gnn), uses fully differentiable
-    dense forward passes that maintain gradient flow through the adjacency matrix.
-
-    For standalone models (2gnn, 3gnn), falls back to sparse conversion
-    (not recommended for GIN-Graph due to non-differentiable adjacency).
+    Uses fully differentiable dense forward passes that maintain gradient flow
+    through the adjacency matrix. Supports hierarchical models: 1gnn, 12gnn, 123gnn.
     """
 
     def __init__(self, sparse_model: nn.Module, model_type: str = '1gnn'):
@@ -56,8 +50,10 @@ class DenseToSparseWrapper(nn.Module):
         elif self.model_type == '123gnn':
             return self._forward_dense_123gnn(x, adj)
         else:
-            # Fallback for standalone 2gnn/3gnn
-            return self._forward_sparse(x, adj)
+            raise ValueError(
+                f"Unsupported model type: {self.model_type}. "
+                f"Use '1gnn', '12gnn', or '123gnn'."
+            )
 
     # ==================== Dense Building Blocks ====================
 
@@ -80,10 +76,9 @@ class DenseToSparseWrapper(nn.Module):
         Dense 2-set message passing using pretrained KSetLayer weights.
         Fully differentiable through adj.
 
-        For each pair (i,j):
-        - Feature: [h_i || h_j || adj[i,j]] with soft (differentiable) iso-type
-        - Neighbor def: {j,w} is neighbor of {i,j} if adj[i,w]*adj[j,w] > 0
-          (w connected to both i and j, matching pretrained behavior)
+        For each pair (i,j), canonical feature: [h_min(i,j) || h_max(i,j) || adj[i,j]]
+        Neighbor def per Morris et al.: {u,v}~{v,w} iff (u,w)∈E
+        (replaced element must be adjacent to new element).
         """
         B, N, D = h.shape
         device = h.device
@@ -92,25 +87,37 @@ class DenseToSparseWrapper(nn.Module):
         eye = torch.eye(N, device=device).unsqueeze(0)
         adj_clean = adj * (1.0 - eye)
 
-        # Build pair features: [h_i || h_j || adj[i,j]]
+        # Build canonical pair features: [h_min(i,j) || h_max(i,j) || adj[i,j]]
+        # Upper triangle (i<j) already canonical; lower triangle swaps.
         h_i = h.unsqueeze(2).expand(-1, -1, N, -1)  # [B, N, N, D]
         h_j = h.unsqueeze(1).expand(-1, N, -1, -1)  # [B, N, N, D]
         iso = adj_clean.unsqueeze(-1)                 # [B, N, N, 1]
-        pair_feat = torch.cat([h_i, h_j, iso], dim=-1)  # [B, N, N, 2D+1]
+
+        # Canonical: first = h_min_idx, second = h_max_idx
+        upper = torch.triu(torch.ones(N, N, device=device), diagonal=1)  # i<j
+        lower = upper.t()                                                 # i>j
+        m = upper.unsqueeze(0).unsqueeze(-1)  # [1,N,N,1] — 1 where i<j
+        l = lower.unsqueeze(0).unsqueeze(-1)  # [1,N,N,1] — 1 where i>j
+        # Where i<j: [h_i, h_j]; where i>j: [h_j, h_i]; diagonal: doesn't matter
+        first  = h_i * m + h_j * l + h_i * (1 - m - l)
+        second = h_j * m + h_i * l + h_j * (1 - m - l)
+        pair_feat = torch.cat([first, second, iso], dim=-1)  # [B, N, N, 2D+1]
 
         # Apply pretrained 2-GNN layers
         for layer in self.sparse_model.gnn2_layers:
             g = layer.W2(pair_feat)        # [B, N, N, hidden]
             self_part = layer.W1(pair_feat)
 
-            # masked_g[b,i,w,d] = adj[b,i,w] * g[b,i,w,d]
-            masked_g = adj_clean.unsqueeze(-1) * g
-
-            # Dense 2-set aggregation (matches pretrained "w neighbor of both" def):
-            # agg1[i,j] = sum_w adj[i,w]*adj[j,w]*g[j,w]  (from neighbor pair {j,w})
-            agg1 = torch.einsum('biw,bjwd->bijd', adj_clean, masked_g)
-            # agg2[i,j] = sum_w adj[j,w]*adj[i,w]*g[i,w]  (from neighbor pair {i,w})
-            agg2 = torch.einsum('bjw,biwd->bijd', adj_clean, masked_g)
+            # Morris et al. neighbor definition for 2-sets:
+            # {u,v}~{v,w} iff (u,w)∈E (only the replaced element must be adjacent)
+            # Case 1 (replace u with w in {u,v}→{v,w}): need adj[u,w]=1
+            #   For pair (i,j), neighbor pair (j,w): need adj[i,w] (replacing i)
+            #   agg1[i,j] = sum_w adj[i,w] * g[j,w]
+            # Case 2 (replace v with w in {u,v}→{u,w}): need adj[v,w]=1
+            #   For pair (i,j), neighbor pair (i,w): need adj[j,w] (replacing j)
+            #   agg2[i,j] = sum_w adj[j,w] * g[i,w]
+            agg1 = torch.einsum('biw,bjwd->bijd', adj_clean, g)
+            agg2 = torch.einsum('bjw,biwd->bijd', adj_clean, g)
 
             pair_feat = layer.activation(self_part + agg1 + agg2)
 
@@ -214,47 +221,6 @@ class DenseToSparseWrapper(nn.Module):
         emb2 = self._dense_2gnn(h, adj)
         emb3 = self._sparse_3gnn(h, adj)
         return self.sparse_model.classifier(torch.cat([emb1, emb2, emb3], dim=1))
-
-    # ==================== Sparse Fallback ====================
-
-    def _forward_sparse(self, x, adj):
-        """
-        Original sparse forward for standalone 2gnn/3gnn models.
-
-        Note: Not recommended for GIN-Graph training due to
-        non-differentiable adjacency conversion.
-        """
-        batch_size, num_nodes, num_feats = x.size()
-        device = x.device
-
-        all_x = []
-        all_edge_index = []
-        all_batch = []
-        node_offset = 0
-
-        for b in range(batch_size):
-            x_b = x[b]
-            adj_b = adj[b]
-
-            edge_mask = adj_b > 0.5
-            edge_index_b = edge_mask.nonzero(as_tuple=False).t()
-
-            if edge_index_b.size(1) == 0:
-                edge_index_b = torch.tensor([[0], [0]], device=device, dtype=torch.long)
-
-            edge_index_b = edge_index_b + node_offset
-
-            all_x.append(x_b)
-            all_edge_index.append(edge_index_b)
-            all_batch.append(torch.full((num_nodes,), b, device=device, dtype=torch.long))
-
-            node_offset += num_nodes
-
-        x_flat = torch.cat(all_x, dim=0)
-        edge_index = torch.cat(all_edge_index, dim=1)
-        batch_vec = torch.cat(all_batch, dim=0)
-
-        return self.sparse_model(x_flat, edge_index, batch_vec)
 
 
 # ==================== Utility Models ====================

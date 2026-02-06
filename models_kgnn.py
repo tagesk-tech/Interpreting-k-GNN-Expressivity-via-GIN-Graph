@@ -186,55 +186,51 @@ def build_2set_edges(
     canonical_idx = u * n + v
     sorted_canonical, sort_perm = canonical_idx.sort()
 
-    # For each pair (u, v), find all w where:
-    # - w is neighbor of v (adj[v, w] == 1)
-    # - w is neighbor of u (adj[u, w] == 1)
-    # - w != u and w != v
-    # This generates edges to both {v, w} and {u, w}
+    # Per Morris et al., {u,v} ~ {v,w} iff (u,w) ∈ E (the replaced and new
+    # elements must be adjacent).  Each case is handled independently:
+    #   Case 1: replace u with w → need (u,w) ∈ E, target = {v,w}
+    #   Case 2: replace v with w → need (v,w) ∈ E, target = {u,w}
 
-    # Get adjacency rows for all u and v
     adj_u = adj[u]  # [num_pairs, n]
     adj_v = adj[v]  # [num_pairs, n]
-
-    # Valid w candidates: neighbor of both u and v
-    valid_w_mask = (adj_u == 1) & (adj_v == 1)  # [num_pairs, n]
-
-    # Exclude w == u and w == v
     pair_range = torch.arange(num_pairs, device=device)
-    valid_w_mask[pair_range, u] = False
-    valid_w_mask[pair_range, v] = False
-
-    # Find all valid (pair_idx, w) combinations
-    pair_indices, w_candidates = valid_w_mask.nonzero(as_tuple=True)
-
-    if pair_indices.numel() == 0:
-        return torch.empty((2, 0), dtype=torch.long, device=device)
 
     all_src = []
     all_dst = []
 
     # Case 1: Edge from {u, v} to {v, w} (keep v, replace u with w)
-    v_vals = v[pair_indices]
-    w_vals = w_candidates
-    target_min = torch.minimum(v_vals, w_vals)
-    target_max = torch.maximum(v_vals, w_vals)
-    target_canonical = target_min * n + target_max
-    target_pair_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
-    valid_mask = target_pair_idx >= 0
-    if valid_mask.any():
-        all_src.append(pair_indices[valid_mask])
-        all_dst.append(target_pair_idx[valid_mask])
+    # Condition: (u, w) ∈ E  (replaced element u connected to new element w)
+    mask1 = (adj_u == 1).clone()
+    mask1[pair_range, u] = False
+    mask1[pair_range, v] = False
+    p_idx1, w_vals1 = mask1.nonzero(as_tuple=True)
+    if p_idx1.numel() > 0:
+        v_vals = v[p_idx1]
+        target_min = torch.minimum(v_vals, w_vals1)
+        target_max = torch.maximum(v_vals, w_vals1)
+        target_canonical = target_min * n + target_max
+        target_pair_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
+        valid_mask = target_pair_idx >= 0
+        if valid_mask.any():
+            all_src.append(p_idx1[valid_mask])
+            all_dst.append(target_pair_idx[valid_mask])
 
     # Case 2: Edge from {u, v} to {u, w} (keep u, replace v with w)
-    u_vals = u[pair_indices]
-    target_min = torch.minimum(u_vals, w_vals)
-    target_max = torch.maximum(u_vals, w_vals)
-    target_canonical = target_min * n + target_max
-    target_pair_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
-    valid_mask = target_pair_idx >= 0
-    if valid_mask.any():
-        all_src.append(pair_indices[valid_mask])
-        all_dst.append(target_pair_idx[valid_mask])
+    # Condition: (v, w) ∈ E  (replaced element v connected to new element w)
+    mask2 = (adj_v == 1).clone()
+    mask2[pair_range, u] = False
+    mask2[pair_range, v] = False
+    p_idx2, w_vals2 = mask2.nonzero(as_tuple=True)
+    if p_idx2.numel() > 0:
+        u_vals = u[p_idx2]
+        target_min = torch.minimum(u_vals, w_vals2)
+        target_max = torch.maximum(u_vals, w_vals2)
+        target_canonical = target_min * n + target_max
+        target_pair_idx = _searchsorted_lookup(sorted_canonical, sort_perm, target_canonical)
+        valid_mask = target_pair_idx >= 0
+        if valid_mask.any():
+            all_src.append(p_idx2[valid_mask])
+            all_dst.append(target_pair_idx[valid_mask])
 
     if not all_src:
         return torch.empty((2, 0), dtype=torch.long, device=device)
@@ -974,8 +970,6 @@ def get_model(
     """
     models = {
         '1gnn': lambda: OneGNN(input_dim, hidden_dim, output_dim, **kwargs),
-        '2gnn': lambda: TwoGNN(input_dim, hidden_dim, output_dim, **kwargs),
-        '3gnn': lambda: ThreeGNN(input_dim, hidden_dim, output_dim, **kwargs),
         '12gnn': lambda: Hierarchical12GNN(input_dim, hidden_dim, output_dim, **kwargs),
         '123gnn': lambda: Hierarchical123GNN(input_dim, hidden_dim, output_dim, **kwargs),
     }

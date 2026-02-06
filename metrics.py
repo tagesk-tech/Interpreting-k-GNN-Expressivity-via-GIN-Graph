@@ -208,7 +208,7 @@ class ExplanationEvaluator:
                 granularity=1.0
             )
         
-        avg_degree = num_edges / active_nodes
+        avg_degree = 2 * num_edges / active_nodes
         
         # Get class statistics
         stats = self.class_stats.get(target_class, {})

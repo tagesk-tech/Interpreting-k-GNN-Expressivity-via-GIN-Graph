@@ -329,7 +329,7 @@ def main():
                         choices=AVAILABLE_DATASETS,
                         help=f'Dataset ({", ".join(AVAILABLE_DATASETS)})')
     shared.add_argument('--model', type=str, default='1gnn',
-                        choices=['1gnn', '2gnn', '3gnn', '12gnn', '123gnn'],
+                        choices=['1gnn', '12gnn', '123gnn'],
                         help='k-GNN model name')
     shared.add_argument('--device', type=str, default='auto',
                         help='Device (auto/cpu/cuda)')

@@ -4,16 +4,13 @@ Training script for k-GNN models on graph classification datasets.
 
 Usage:
     python train_kgnn.py --model 1gnn --epochs 100
-    python train_kgnn.py --model 2gnn --epochs 100   # Standalone 2-GNN
-    python train_kgnn.py --model 3gnn --epochs 100   # Standalone 3-GNN
     python train_kgnn.py --model 12gnn --epochs 100  # Hierarchical 1-2-GNN
     python train_kgnn.py --model 123gnn --epochs 100 # Hierarchical 1-2-3-GNN
-    python train_kgnn.py --all  # Train all models
+    python train_kgnn.py --all  # Train all hierarchical models
 
     # Train on different datasets:
     python train_kgnn.py --dataset mutag --model 1gnn
-    python train_kgnn.py --dataset dd --model 2gnn
-    python train_kgnn.py --dataset proteins --model 3gnn
+    python train_kgnn.py --dataset proteins --model 12gnn
 """
 
 import torch
@@ -180,7 +177,7 @@ def main():
                         choices=AVAILABLE_DATASETS,
                         help=f'Dataset to train on ({", ".join(AVAILABLE_DATASETS)})')
     parser.add_argument('--model', type=str, default='1gnn',
-                        choices=['1gnn', '2gnn', '3gnn', '12gnn', '123gnn'],
+                        choices=['1gnn', '12gnn', '123gnn'],
                         help='Model architecture to train')
     parser.add_argument('--all', action='store_true',
                         help='Train all models')
@@ -247,7 +244,7 @@ def main():
     
     # Determine which models to train
     if args.all:
-        models_to_train = ['1gnn', '2gnn', '3gnn', '12gnn', '123gnn']
+        models_to_train = ['1gnn', '12gnn', '123gnn']
     else:
         models_to_train = [args.model]
     
