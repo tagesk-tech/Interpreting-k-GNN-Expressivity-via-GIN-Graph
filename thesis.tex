@@ -287,11 +287,13 @@ where the canonical ordering $(\min, \max)$ ensures that $\mathbf{F}[i,j] = \mat
 
 For the neighbourhood aggregation, recall from Equation~\eqref{eq:2set-nbr} that there are two cases. Using the transformed features $\mathbf{g} = \mathbf{F}\,\mathbf{W}_4^{(\ell)} \in \mathbb{R}^{B \times N \times N \times d_T}$, the aggregation for pair $(i,j)$ is:
 \begin{align}
-  \text{agg}_1[i,j] &= \sum_{w=1}^{N} A_{iw} \cdot \mathbf{g}[j,w] & &\text{(replace } i \text{ with } w \text{ adjacent to } i\text{)}, \label{eq:dense-2gnn-agg1} \\
-  \text{agg}_2[i,j] &= \sum_{w=1}^{N} A_{jw} \cdot \mathbf{g}[i,w] & &\text{(replace } j \text{ with } w \text{ adjacent to } j\text{)}. \label{eq:dense-2gnn-agg2}
+  \text{agg}_1[i,j] &= \sum_{\substack{w=1 \\ w \neq j}}^{N} A_{iw} \cdot \mathbf{g}[j,w] & &\text{(replace } i \text{ with } w \text{ adjacent to } i\text{)}, \label{eq:dense-2gnn-agg1} \\
+  \text{agg}_2[i,j] &= \sum_{\substack{w=1 \\ w \neq i}}^{N} A_{jw} \cdot \mathbf{g}[i,w] & &\text{(replace } j \text{ with } w \text{ adjacent to } j\text{)}. \label{eq:dense-2gnn-agg2}
 \end{align}
 
-These are computed efficiently via Einstein summation (\texttt{einsum}). The key insight is that multiplying by $A_{iw}$ (a continuous value from the generator) acts as a soft attention over potential neighbours, and gradients flow through $\mathbf{A}$ into the generator. The full 2-GNN layer update is then:
+The constraints $w \neq j$ in $\text{agg}_1$ and $w \neq i$ in $\text{agg}_2$ are essential: without them, the summation includes the self-pair $\{j,j\}$ or $\{i,i\}$, which has cardinality 1 and is not a valid 2-set. The self-loop exclusion ($A_{ii} = 0$) already removes $w = i$ from $\text{agg}_1$ and $w = j$ from $\text{agg}_2$, but the opposite boundary terms must be explicitly masked. In practice, we zero out the diagonal of $\mathbf{g}$ (setting $\mathbf{g}[k,k] = \mathbf{0}$ for all $k$) before the summation, which eliminates both boundary terms simultaneously.
+
+These sums are computed efficiently via Einstein summation (\texttt{einsum}) over the masked $\mathbf{g}$. The key insight is that multiplying by $A_{iw}$ (a continuous value from the generator) acts as a soft attention over potential neighbours, and gradients flow through $\mathbf{A}$ into the generator. The full 2-GNN layer update is then:
 \begin{equation}
   \mathbf{F}^{(\ell+1)} = \sigma\!\left(\mathbf{F}^{(\ell)}\,\mathbf{W}_3^{(\ell)} + \text{agg}_1^{(\ell)} + \text{agg}_2^{(\ell)}\right).
   \label{eq:dense-2gnn-update}

@@ -116,8 +116,12 @@ class DenseToSparseWrapper(nn.Module):
             # Case 2 (replace v with w in {u,v}→{u,w}): need adj[v,w]=1
             #   For pair (i,j), neighbor pair (i,w): need adj[j,w] (replacing j)
             #   agg2[i,j] = sum_w adj[j,w] * g[i,w]
-            agg1 = torch.einsum('biw,bjwd->bijd', adj_clean, g)
-            agg2 = torch.einsum('bjw,biwd->bijd', adj_clean, g)
+
+            # Boundary fix: exclude self-pair terms {k,k} (cardinality 1, not valid 2-sets).
+            # agg1 w=j gives g[j,j], agg2 w=i gives g[i,i] — zero the diagonal of g.
+            g_masked = g * (1.0 - eye).unsqueeze(-1)  # eye is [1,N,N], result [B,N,N,hidden]
+            agg1 = torch.einsum('biw,bjwd->bijd', adj_clean, g_masked)
+            agg2 = torch.einsum('bjw,biwd->bijd', adj_clean, g_masked)
 
             pair_feat = layer.activation(self_part + agg1 + agg2)
 
