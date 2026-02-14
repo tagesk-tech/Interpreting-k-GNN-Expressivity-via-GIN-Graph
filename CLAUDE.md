@@ -4,7 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Research project investigating whether higher-order Graph Neural Networks (k-GNNs) provide better structural interpretations compared to standard 1-GNNs using model-level explanation generation via the GIN-Graph method on the MUTAG dataset.
+Research project investigating whether higher-order Graph Neural Networks (k-GNNs) provide better structural interpretations compared to standard 1-GNNs using model-level explanation generation via the GIN-Graph method on the MUTAG and PROTEINS datasets.
+
+## Key Fixes Applied
+
+### Embedding similarity (s) metric — fixed in c4d9e91
+The validation score `v = (s * p * d)^(1/3)` originally used `s = p` (prediction probability as a proxy for embedding similarity), collapsing the metric to `(p^2 * d)^(1/3)`. Fixed by computing actual cosine similarity between generated graph embeddings (via `DenseToSparseWrapper.get_embedding()`) and a precomputed class centroid (mean embedding of real target-class graphs via the sparse k-GNN). The centroid is saved in GIN-Graph checkpoints. All results have been regenerated with the corrected metric.
 
 ## Commands
 
@@ -63,6 +68,18 @@ python research.py gin --model 123gnn --dataset mutag --target_class 0 --num_sam
 
 **DD dataset excluded**: DD is excluded from the current experiments due to its large graph sizes (up to 500 nodes) and high feature dimensionality (89 features), which make GIN-Graph training prohibitively slow and memory-intensive. The codebase retains DD support for future work.
 
+### Current Experiment Status
+All results regenerated with corrected embedding similarity metric (s != p).
+
+| Dataset  | Model   | k-GNN | GIN c0 | GIN c1 | Analysis |
+|----------|---------|-------|--------|--------|----------|
+| MUTAG    | 1-GNN   | 84.2% | 49ep (needs retrain) | 300ep | done |
+| MUTAG    | 1-2-GNN | 89.5% | 300ep | 300ep | done |
+| MUTAG    | 1-2-3-GNN | 89.5% | 1ep (needs retrain) | 300ep | done |
+| PROTEINS | 1-GNN   | 78.0% | 300ep | 300ep | done |
+| PROTEINS | 1-2-GNN | 65.0% | 29ep (needs retrain) | 29ep (needs retrain) | done |
+| PROTEINS | 1-2-3-GNN | not trained | — | — | — |
+
 ## Architecture
 
 ### Pipeline Flow (3-step checkpoint workflow)
@@ -100,9 +117,10 @@ python research.py gin --model 123gnn --dataset mutag --target_class 0 --num_sam
 - Dynamic weighting (`dynamic_weighting.py`): Sigmoid schedule shifting from GAN to GNN optimization
 
 **Evaluation (`metrics.py`)**: Validation score = (s × p × d)^(1/3)
-- s: Embedding similarity to class centroid
+- s: Cosine similarity between generated embedding (dense wrapper) and class centroid (sparse k-GNN on real graphs)
 - p: Target class prediction probability
 - d: Degree score (structural validity via Gaussian kernel)
+- Class centroid is computed once per training run via `compute_class_centroid()` and saved in checkpoints
 
 ### Dataset Handlers (`gin_handlers/`)
 

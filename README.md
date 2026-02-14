@@ -1,7 +1,13 @@
 stuff to do:
-1. Run experiments across datasets
-2. analyze and compare the generated explanations
-3. draw conclusions about wether higher-order k-GNNs produce better interpretations
+1. ~~Run experiments across datasets~~ DONE (MUTAG: all 3 models, PROTEINS: 1gnn + 12gnn)
+2. ~~analyze and compare the generated explanations~~ DONE (all results regenerated with corrected embedding similarity)
+3. draw conclusions about whether higher-order k-GNNs produce better interpretations
+
+remaining gaps:
+- MUTAG 123gnn class0 GIN needs retraining (current checkpoint only 1 epoch)
+- MUTAG 1gnn class0 GIN needs retraining (current checkpoint only 49 epochs)
+- PROTEINS 12gnn GIN needs retraining (current checkpoint only 29 epochs)
+- PROTEINS 123gnn: k-GNN not trained yet, no GIN experiments
 
 
 # k-GNN Interpretation with GIN-Graph
@@ -22,10 +28,10 @@ We compare:
 ## Project Structure
 
 ```
-kgnn_interpretation/
+k-GNN/
 ├── config.py              # Central configuration
-├── data_loader.py         # MUTAG dataset loading utilities
-├── models_kgnn.py         # k-GNN model implementationspy
+├── data_loader.py         # Dataset loading utilities (MUTAG, PROTEINS, DD)
+├── models_kgnn.py         # k-GNN model implementations
 ├── gin_generator.py       # GIN-Graph generator and discriminator
 ├── model_wrapper.py       # Dense differentiable wrapper for GIN-Graph
 ├── dynamic_weighting.py   # Dynamic loss weighting scheme
@@ -33,7 +39,8 @@ kgnn_interpretation/
 ├── visualize.py           # Visualization utilities
 ├── train_kgnn.py          # k-GNN training script
 ├── train_gin_graph.py     # GIN-Graph training script
-├── run_experiment.py      # Full experiment runner
+├── research.py            # Analysis script (no training, evaluation + figures)
+├── gin_handlers/          # Dataset-specific visualization handlers
 └── requirements.txt       # Dependencies
 ```
 
@@ -78,17 +85,16 @@ python train_gin_graph.py --model 12gnn --target_class 0 --epochs 300
 python train_gin_graph.py --model 123gnn --target_class 0 --epochs 300
 ```
 
-### 3. Run Full Experiment
+### 3. Analyze Results (no training)
 
 ```bash
-# Run complete experiment pipeline
-python run_experiment.py
+# Evaluate k-GNN checkpoints on test set
+python research.py gnn --model 1gnn --dataset mutag
+python research.py gnn --model 12gnn --dataset mutag
 
-# Skip k-GNN training if models already exist
-python run_experiment.py --skip_kgnn_training
-
-# Run only specific models
-python run_experiment.py --models 1gnn 123gnn
+# Generate explanations from GIN-Graph checkpoints
+python research.py gin --model 1gnn --dataset mutag --target_class 0
+python research.py gin --model 12gnn --dataset mutag --target_class 0 --num_samples 200
 ```
 
 ## Theoretical Background
@@ -133,9 +139,11 @@ A key challenge in applying GIN-Graph to higher-order k-GNNs is maintaining grad
 ```
 v = (s × p × d)^(1/3)
 ```
-- **s**: Embedding similarity to class centroid
-- **p**: Prediction probability for target class  
-- **d**: Degree score (structural validity)
+- **s**: Embedding similarity — cosine similarity between the generated graph's embedding (from the dense wrapper) and the precomputed class centroid (mean embedding of real target-class graphs via the sparse k-GNN). Measures whether the explanation lives in the right region of embedding space.
+- **p**: Prediction probability for target class
+- **d**: Degree score (structural validity via Gaussian kernel centered at class mean degree)
+
+> **Fixed (c4d9e91)**: Earlier versions used `s = p` as a simplification, collapsing the metric to `v = (p² × d)^(1/3)`. This made the score blind to embedding-space shortcuts where a graph could achieve high prediction confidence without being structurally similar to real class members. The fix computes actual cosine similarity using `get_embedding()` on both the sparse k-GNN (for the centroid) and the dense wrapper (for generated graphs).
 
 ### Granularity
 ```
@@ -183,31 +191,33 @@ checkpoints/                          ← Stage 1: Train k-GNNs
 └── mutag_123gnn.pt
 
 gin_checkpoints/                      ← Stage 2: Train GIN-Graph generators
-├── mutag_1gnn_class0.pt              # Final GIN-Graph models (clean top level)
-├── mutag_12gnn_class0.pt
-├── mutag_123gnn_class0.pt
-└── training/                         # Intermediate artifacts
-    ├── ckpt_mutag_12gnn_epoch0.pt
-    ├── ckpt_mutag_12gnn_epoch20.pt
-    ├── samples_mutag_12gnn_epoch0.npz    # For standalone viz
-    └── samples_mutag_12gnn_epoch20.npz
+├── mutag/
+│   ├── 1gnn_class0.pt               # Final GIN-Graph models
+│   ├── 12gnn_class0.pt
+│   └── training/                     # Intermediate artifacts
+│       ├── ckpt_mutag_12gnn_epoch0.pt
+│       └── samples_mutag_12gnn_epoch0.npz
+└── proteins/
+    ├── 1gnn_class0.pt
+    └── training/
 
-results/experiment_TIMESTAMP/         ← Stage 3: Analyse results
-├── experiment_report.json
-├── explanations_mutag_1gnn_class0.npz   # Best explanations
-└── figures/
-    ├── explanations_1gnn.png
-    ├── training_1gnn.png
-    ├── metrics_1gnn.png
-    ├── model_comparison.png
-    └── mutag_legend.png
+results/                              ← Stage 3: Analysis results
+├── mutag/
+│   ├── 1gnn/report.json             # k-GNN evaluation
+│   ├── 1gnn_class0/                 # GIN-Graph analysis per class
+│   │   ├── figures/
+│   │   ├── explanations.npz
+│   │   └── report.json
+│   └── 12gnn_class1/
+└── proteins/
+    └── ...
 ```
 
 Intermediate `.npz` sample files can be visualized offline with `visualize_standalone.py`
 (no torch required):
 
 ```bash
-python visualize_standalone.py gin_checkpoints/training/samples_mutag_12gnn_epoch100.npz -o fig.png
+python visualize_standalone.py gin_checkpoints/mutag/training/samples_mutag_12gnn_epoch100.npz -o fig.png
 ```
 
 ## References
