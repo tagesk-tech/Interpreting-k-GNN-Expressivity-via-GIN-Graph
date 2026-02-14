@@ -1,0 +1,591 @@
+\documentclass[12pt,a4paper]{article}
+
+% ============================================================
+% Packages
+% ============================================================
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{subcaption}
+\usepackage[hidelinks]{hyperref}
+\usepackage{enumitem}
+%\usepackage{xcolor}
+
+% Compact spacing
+\setlength{\parskip}{0.4em}
+\setlength{\parindent}{0em}
+
+% ============================================================
+% Title
+% ============================================================
+\title{%
+  \textbf{Hierarchical $k$-GNN Explanations via\\Generative Interpretation Networks}\\
+  \large Comparing 1-GNN and 1-2-GNN for Model-Level\\Graph Classification Interpretability
+}
+\author{[Author Name]}
+\date{February 2026}
+
+\begin{document}
+\maketitle
+
+% ============================================================
+% Abstract
+% ============================================================
+\begin{abstract}
+Graph Neural Networks (GNNs) are powerful tools for graph classification, yet their decision processes remain opaque. Higher-order $k$-GNNs, which operate on $k$-element subsets of nodes, provably increase expressive power beyond the Weisfeiler--Leman hierarchy, but it is unclear whether this additional expressiveness translates into more interpretable explanations. We investigate this question by comparing a standard 1-GNN with a hierarchical 1-2-GNN using the GIN-Graph framework for model-level explanation generation. Our pipeline trains $k$-GNN classifiers on the MUTAG and PROTEINS benchmarks, then uses a Wasserstein GAN with gradient penalty to generate class-representative explanation graphs guided by the pretrained classifier. We introduce a fully differentiable dense wrapper that maintains gradient flow through both node features and adjacency matrices for hierarchical models. On MUTAG, the 1-2-GNN achieves higher classification accuracy (89.5\% vs.\ 84.2\%) and produces explanations with substantially higher validity rates (88\% vs.\ 78\%), validation scores (0.80 vs.\ 0.69), and embedding similarity (0.995 vs.\ 0.964). On PROTEINS, the 1-GNN outperforms in both classification and explanation quality, suggesting that the benefit of higher-order message passing is dataset-dependent. We discuss limitations including undertrained checkpoints, single-seed evaluation, and the granularity problem in model-level explanations.
+\end{abstract}
+
+\newpage
+\tableofcontents
+\newpage
+
+% ============================================================
+% 1. Introduction
+% ============================================================
+\section{Introduction}
+\label{sec:introduction}
+
+Graph Neural Networks (GNNs) have become the standard approach for learning on graph-structured data, achieving state-of-the-art results on tasks ranging from molecular property prediction to social network analysis~\cite{kipf2017semi,xu2019powerful}. Despite their effectiveness, GNNs suffer from the same interpretability challenges as other deep learning models: their predictions are difficult to explain in human-understandable terms.
+
+The expressiveness of standard message-passing GNNs is bounded by the 1-dimensional Weisfeiler--Leman (1-WL) graph isomorphism test~\cite{xu2019powerful,morris2019weisfeiler}. Morris et al.~\cite{morris2019weisfeiler} proposed $k$-GNNs that operate on $k$-element subsets of nodes, achieving expressiveness equivalent to the $k$-WL test. In theory, higher-order $k$-GNNs can distinguish graph structures that standard GNNs cannot.
+
+A natural question arises: \emph{does this additional structural expressiveness translate into better model-level explanations?} If a model captures richer structural patterns, the explanations it produces---representative graphs that characterise each class---should be more informative and structurally valid.
+
+We investigate this question using the GIN-Graph framework~\cite{sun2025gingraph}, which generates model-level explanation graphs through a GAN-based approach guided by a pretrained classifier. Specifically, we compare:
+\begin{itemize}[nosep]
+  \item A \textbf{1-GNN}: standard node-level message passing, equivalent to 1-WL;
+  \item A \textbf{1-2-GNN}: hierarchical architecture combining node-level (1-GNN) and pairwise (2-GNN) message passing, achieving 2-WL expressiveness.
+\end{itemize}
+
+Our contributions are:
+\begin{enumerate}[nosep]
+  \item A fully differentiable dense wrapper enabling GIN-Graph training with hierarchical $k$-GNN classifiers, maintaining gradient flow through adjacency matrices at both the 1-GNN and 2-GNN levels.
+  \item A corrected validation metric that computes actual cosine similarity between generated and real graph embeddings, replacing the original proxy of using prediction probability.
+  \item An empirical comparison of explanation quality across two benchmark datasets (MUTAG, PROTEINS), showing that the benefit of higher-order message passing for interpretability is dataset-dependent.
+\end{enumerate}
+
+% ============================================================
+% 2. Background
+% ============================================================
+\section{Background}
+\label{sec:background}
+
+\subsection{Graph Neural Networks}
+
+A graph $G = (V, E)$ consists of a node set $V$ and edge set $E \subseteq V \times V$. Each node $v \in V$ may carry a feature vector $\mathbf{x}_v \in \mathbb{R}^d$. GNNs learn node representations through iterative message passing: at each layer $t$, a node aggregates information from its neighbours:
+\begin{equation}
+  \mathbf{h}_v^{(t)} = \text{UPDATE}\!\left(\mathbf{h}_v^{(t-1)},\; \text{AGGREGATE}\!\left(\left\{\mathbf{h}_u^{(t-1)} : u \in \mathcal{N}(v)\right\}\right)\right),
+  \label{eq:mp}
+\end{equation}
+where $\mathcal{N}(v)$ denotes the neighbourhood of $v$ and $\mathbf{h}_v^{(0)} = \mathbf{x}_v$.
+
+For graph-level tasks, a readout function pools all node embeddings into a single graph representation:
+\begin{equation}
+  \mathbf{h}_G = \text{READOUT}\!\left(\left\{\mathbf{h}_v^{(T)} : v \in V\right\}\right).
+  \label{eq:readout}
+\end{equation}
+
+\subsection{The $k$-WL Hierarchy and $k$-GNNs}
+
+The Weisfeiler--Leman (WL) graph isomorphism test iteratively refines colour labels based on neighbourhood multisets. The $k$-WL test operates on $k$-tuples of nodes, achieving strictly increasing discriminative power: for all $k \geq 2$, $(k+1)$-WL is strictly more powerful than $k$-WL~\cite{cai1992optimal}.
+
+Morris et al.~\cite{morris2019weisfeiler} showed that standard message-passing GNNs are at most as powerful as the 1-WL test, and proposed $k$-GNNs that achieve $k$-WL expressiveness by operating on $k$-element subsets (``$k$-sets'') of nodes. For a $k$-set $s = \{v_1, \ldots, v_k\} \subseteq V$, the \emph{local neighbourhood} is defined as:
+\begin{equation}
+  \mathcal{N}_L(s) = \left\{s' \subseteq V : |s'| = k,\; |s \triangle s'| = 2,\; \text{the differing elements are adjacent in } G\right\},
+  \label{eq:kset-nbr}
+\end{equation}
+where $s \triangle s'$ denotes the symmetric difference. Intuitively, a neighbour of $s$ is obtained by replacing one element with an adjacent node.
+
+\subsection{GNN Explainability}
+
+GNN explanation methods can be categorised along two axes~\cite{yuan2022explainability}:
+
+\textbf{Instance-level} methods explain individual predictions. GNNExplainer~\cite{ying2019gnnexplainer} identifies a subgraph and feature subset that maximise mutual information with the prediction. PGExplainer~\cite{luo2020parameterized} learns a global edge mask predictor.
+
+\textbf{Model-level} methods explain the overall behaviour of a trained model by generating representative input patterns for each class. XGNN~\cite{yuan2020xgnn} uses reinforcement learning to grow graphs that maximise class prediction. GIN-Graph~\cite{sun2025gingraph} employs a generative adversarial approach, combining a WGAN-GP for structural realism with classifier guidance for class specificity.
+
+We adopt the model-level approach because it directly reveals what structural patterns each model associates with a given class, enabling comparison between architectures.
+
+\subsection{GIN-Graph Overview}
+
+GIN-Graph~\cite{sun2025gingraph} trains a generator $\mathcal{G}$ to produce graphs that are simultaneously realistic (via a WGAN-GP discriminator) and class-specific (via a pretrained GNN classifier $\Phi$). The generator maps noise $\mathbf{z} \sim \mathcal{N}(\mathbf{0}, \mathbf{I})$ to a graph $(\tilde{A}, \tilde{X})$ using Gumbel-Softmax for differentiable discrete sampling. The training objective balances adversarial and classification losses through a dynamic weighting schedule.
+
+% ============================================================
+% 3. Method
+% ============================================================
+\section{Method}
+\label{sec:method}
+
+\subsection{1-GNN Architecture}
+
+Our 1-GNN implements standard message passing with separate self and neighbour transformations. At layer $t$:
+\begin{equation}
+  \mathbf{h}_v^{(t)} = \sigma\!\left(\mathbf{h}_v^{(t-1)} \mathbf{W}_1^{(t)} + \sum_{u \in \mathcal{N}(v)} \mathbf{h}_u^{(t-1)} \mathbf{W}_2^{(t)}\right),
+  \label{eq:1gnn}
+\end{equation}
+where $\mathbf{W}_1^{(t)}, \mathbf{W}_2^{(t)} \in \mathbb{R}^{d_t \times d_{t+1}}$ are learnable weight matrices and $\sigma$ is the ReLU activation. After $T = 3$ layers, the graph embedding is obtained via sum pooling:
+\begin{equation}
+  \mathbf{h}_G^{(1)} = \sum_{v \in V} \mathbf{h}_v^{(T)}.
+  \label{eq:1gnn-readout}
+\end{equation}
+
+\subsection{2-GNN and the Hierarchical 1-2-GNN}
+
+The 2-GNN operates on 2-sets (unordered node pairs). For each pair $s = \{u, v\}$ with $u < v$, the initial feature incorporates the 1-GNN embeddings and an isomorphism type indicator:
+\begin{equation}
+  \mathbf{f}_s^{(0)} = \left[\mathbf{h}_u^{(T)} \;\|\; \mathbf{h}_v^{(T)} \;\|\; \mathbb{1}[(u,v) \in E]\right] \in \mathbb{R}^{2d_T + 1},
+  \label{eq:2set-feat}
+\end{equation}
+where $\|$ denotes concatenation and $\mathbb{1}[(u,v) \in E]$ is the isomorphism type indicating whether the pair is connected.
+
+The 2-GNN neighbourhood follows the Morris et al.\ definition. For $s = \{u, v\}$:
+\begin{equation}
+  \mathcal{N}_L(s) = \left\{\{v, w\} : w \neq u,\; (u, w) \in E\right\} \cup \left\{\{u, w\} : w \neq v,\; (v, w) \in E\right\}.
+  \label{eq:2set-nbr}
+\end{equation}
+That is, we replace one element of the pair with an adjacent node. Message passing on 2-sets then follows the same form as Equation~\eqref{eq:1gnn}, operating on $\mathbf{f}_s^{(t)}$ with 2-GNN weight matrices.
+
+The \textbf{hierarchical 1-2-GNN} first runs the 1-GNN (Equation~\ref{eq:1gnn}) for $T_1 = 3$ layers, then uses the resulting node embeddings to initialise 2-GNN features (Equation~\ref{eq:2set-feat}), and runs $T_2 = 2$ layers of 2-GNN message passing. The final graph representation concatenates both readouts:
+\begin{equation}
+  \mathbf{h}_G = \left[\mathbf{h}_G^{(1)} \;\|\; \mathbf{h}_G^{(2)}\right], \quad \text{where } \mathbf{h}_G^{(2)} = \sum_{s \in \binom{V}{2}} \mathbf{f}_s^{(T_2)}.
+  \label{eq:12gnn-readout}
+\end{equation}
+
+For large graphs, the number of pairs $\binom{n}{2}$ can be prohibitive. We randomly sample up to 5000 pairs per graph to maintain tractability.
+
+\subsection{GIN-Graph Generator}
+
+The generator $\mathcal{G}$ maps a latent vector $\mathbf{z} \in \mathbb{R}^{d_z}$ to a graph $(\tilde{A}, \tilde{X})$ through a backbone MLP followed by separate heads for the adjacency matrix and node features:
+\begin{align}
+  \mathbf{h} &= \text{MLP}(\mathbf{z}), \label{eq:gen-backbone} \\
+  \tilde{A} &= \text{GumbelSoftmax}\!\left(\text{sym}(\mathbf{h} \mathbf{W}_A),\; \tau\right) \in \{0,1\}^{N \times N}, \label{eq:gen-adj} \\
+  \tilde{X} &= \text{GumbelSoftmax}\!\left(\mathbf{h} \mathbf{W}_X,\; \tau\right) \in \{0,1\}^{N \times D}, \label{eq:gen-feat}
+\end{align}
+where $N$ is the maximum number of nodes, $D$ is the number of node feature types, $\text{sym}(\cdot)$ symmetrises the matrix, and $\tau$ is the temperature parameter.
+
+\textbf{Gumbel-Softmax.} To enable gradient-based optimisation through discrete graph structures, we use the Gumbel-Softmax trick~\cite{jang2017categorical}. For a categorical distribution with logits $\boldsymbol{\pi}$:
+\begin{equation}
+  y_i = \frac{\exp\!\left((\pi_i + g_i) / \tau\right)}{\sum_j \exp\!\left((\pi_j + g_j) / \tau\right)}, \quad g_i \sim \text{Gumbel}(0, 1).
+  \label{eq:gumbel}
+\end{equation}
+At low temperature $\tau \to 0$, the output approaches a one-hot vector. We use the straight-through estimator: forward pass uses hard (discrete) samples, backward pass uses the continuous relaxation.
+
+For the adjacency matrix, each entry is a binary choice (edge/no-edge). We sample the upper triangle and mirror it to ensure symmetry.
+
+\subsection{Training Objective}
+
+The total loss combines adversarial and GNN-guidance terms:
+\begin{equation}
+  \mathcal{L} = (1 - \lambda(t))\,\mathcal{L}_{\text{GAN}} + \lambda(t)\,\mathcal{L}_{\text{GNN}},
+  \label{eq:total-loss}
+\end{equation}
+where $\lambda(t)$ is a dynamic weight that increases over training.
+
+\textbf{WGAN-GP loss.} The discriminator $\mathcal{D}$ is trained with the Wasserstein distance and gradient penalty~\cite{gulrajani2017improved}:
+\begin{equation}
+  \mathcal{L}_{\text{GAN}} = \mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})] - \mathbb{E}_{G \sim p_{\text{data}}}[\mathcal{D}(G)] + \lambda_{\text{GP}} \, \mathbb{E}_{\hat{G}}[(\|\nabla_{\hat{G}} \mathcal{D}(\hat{G})\|_2 - 1)^2],
+  \label{eq:wgan}
+\end{equation}
+where $\hat{G}$ is a random interpolation between real and generated graphs, and $\lambda_{\text{GP}} = 10$.
+
+\textbf{GNN guidance loss.} We maximise the pretrained classifier's confidence on the target class $c$:
+\begin{equation}
+  \mathcal{L}_{\text{GNN}} = -\log p_\Phi(y = c \mid \tilde{G}).
+  \label{eq:gnn-loss}
+\end{equation}
+
+\textbf{Dynamic weighting.} Following the GIN-Graph paper, $\lambda(t)$ follows a sigmoid schedule:
+\begin{equation}
+  \lambda(t) = \lambda_{\min} + (\lambda_{\max} - \lambda_{\min}) \cdot \sigma\!\left(k \cdot \left(\frac{2(t/T - p)}{1-p} - 1\right)\right),
+  \label{eq:lambda}
+\end{equation}
+where $T$ is the total iterations, $p = 0.4$ controls when the transition begins, $k = 10$ controls its steepness, and $\sigma(\cdot)$ is the logistic sigmoid. Early training ($t \ll pT$) focuses on graph realism ($\lambda \approx 0$); late training shifts to class specificity ($\lambda \to 1$).
+
+\subsection{Dense Wrapper for Differentiable $k$-GNN Inference}
+\label{sec:dense-wrapper}
+
+A key technical challenge is that the pretrained $k$-GNN uses sparse PyTorch Geometric operations, while the generator outputs dense adjacency matrices requiring gradient flow. We implement a fully differentiable dense wrapper.
+
+\textbf{Dense 1-GNN.} Equation~\eqref{eq:1gnn} is rewritten in matrix form for a batch of graphs:
+\begin{equation}
+  \mathbf{H}^{(t)} = \sigma\!\left(\mathbf{H}^{(t-1)} \mathbf{W}_1^{(t)} + \mathbf{A} \, \mathbf{H}^{(t-1)} \mathbf{W}_2^{(t)}\right),
+  \label{eq:dense-1gnn}
+\end{equation}
+where $\mathbf{A} \in [0,1]^{N \times N}$ is the continuous adjacency matrix from the generator. The matrix multiplication $\mathbf{A} \, \mathbf{H}^{(t-1)}$ replaces the sparse message-passing operation and is fully differentiable with respect to $\mathbf{A}$.
+
+\textbf{Dense 2-GNN.} For the 2-GNN component, we construct pair features as a dense $N \times N \times (2d_T + 1)$ tensor:
+\begin{equation}
+  \mathbf{F}[i,j] = \left[\mathbf{h}_{\min(i,j)} \;\|\; \mathbf{h}_{\max(i,j)} \;\|\; A_{ij}\right],
+  \label{eq:dense-2gnn-feat}
+\end{equation}
+where the canonical ordering ensures consistent feature construction. The neighbourhood aggregation uses Einstein summation:
+\begin{align}
+  \text{agg}_1[i,j] &= \sum_w A_{iw} \cdot \mathbf{g}[j,w], \label{eq:dense-2gnn-agg1} \\
+  \text{agg}_2[i,j] &= \sum_w A_{jw} \cdot \mathbf{g}[i,w], \label{eq:dense-2gnn-agg2}
+\end{align}
+where $\mathbf{g} = \mathbf{F} \mathbf{W}_2$ are the transformed pair features. These two aggregation cases correspond to replacing the first or second element of the pair, following the Morris et al.\ neighbourhood definition (Equation~\ref{eq:2set-nbr}). Both operations are fully differentiable through the continuous adjacency matrix.
+
+\subsection{Validation Score}
+\label{sec:validation}
+
+We evaluate generated explanations using a composite validation score:
+\begin{equation}
+  v = (s \cdot p \cdot d)^{1/3},
+  \label{eq:validation}
+\end{equation}
+comprising three components:
+
+\textbf{Embedding similarity} ($s$). The cosine similarity between the generated graph's embedding (computed via the dense wrapper) and a class centroid (mean embedding of real target-class graphs computed via the sparse $k$-GNN):
+\begin{equation}
+  s = \frac{\mathbf{h}_{\tilde{G}} \cdot \boldsymbol{\mu}_c}{\|\mathbf{h}_{\tilde{G}}\| \, \|\boldsymbol{\mu}_c\|}, \quad \boldsymbol{\mu}_c = \frac{1}{|\mathcal{G}_c|} \sum_{G \in \mathcal{G}_c} \mathbf{h}_G,
+  \label{eq:emb-sim}
+\end{equation}
+where $\mathcal{G}_c$ is the set of real graphs in class $c$.
+
+\textbf{Prediction probability} ($p$). The softmax probability assigned to the target class by the pretrained classifier.
+
+\textbf{Degree score} ($d$). A Gaussian kernel measuring how realistic the graph's average degree is relative to the target class:
+\begin{equation}
+  d = \exp\!\left(-\frac{(\bar{d} - \mu_d)^2}{2\sigma_d^2}\right),
+  \label{eq:degree}
+\end{equation}
+where $\bar{d}$ is the average degree of the generated graph, and $\mu_d, \sigma_d$ are the mean and standard deviation of average degrees for real graphs of the target class.
+
+A generated graph is considered \textbf{valid} if its average degree falls within 3 standard deviations of the class mean and its validation score exceeds 0.5.
+
+\textbf{Granularity.} We also report a granularity metric $\kappa = 1 - \min(1, n / \bar{n}_c)$, where $n$ is the number of active nodes and $\bar{n}_c$ is the average number of nodes in class $c$. Values near 0 indicate coarse-grained explanations (full-graph-sized), while values near 1 indicate fine-grained substructure highlights.
+
+% ============================================================
+% 4. Experimental Setup
+% ============================================================
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Datasets}
+
+We evaluate on two standard graph classification benchmarks (Table~\ref{tab:datasets}).
+
+\begin{table}[htbp]
+\centering
+\caption{Dataset statistics. GIN Gen Size is the maximum number of nodes used for explanation generation.}
+\label{tab:datasets}
+\begin{tabular}{lccccl}
+\toprule
+\textbf{Dataset} & \textbf{Graphs} & \textbf{Node Feats} & \textbf{Max Nodes} & \textbf{GIN Gen} & \textbf{Task} \\
+\midrule
+MUTAG    & 188  & 7 (atom types) & 28  & 28 & Mutagenicity \\
+PROTEINS & 1113 & 3 (sec.\ struct.) & 620 & 50 & Enzyme vs.\ non-enzyme \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{MUTAG}~\cite{debnath1991structure} contains 188 molecular graphs labelled by mutagenic effect on \textit{Salmonella typhimurium}. Nodes represent atoms (C, N, O, F, I, Cl, Br) and edges represent chemical bonds. The two classes are \emph{Mutagen} (class 0, 125 graphs) and \emph{Non-Mutagen} (class 1, 63 graphs).
+
+\textbf{PROTEINS}~\cite{borgwardt2005protein} contains 1113 protein graphs where nodes are secondary structure elements (helix, sheet, coil/turn) connected if they are neighbours in the amino acid sequence or within a distance threshold in 3D space. The classes are \emph{Non-Enzyme} (class 0) and \emph{Enzyme} (class 1). For GIN-Graph generation, we use a maximum of 50 nodes (the median protein graph has $\sim$26 nodes).
+
+\subsection{Model Configuration}
+
+All models use a hidden dimension of 64. The 1-GNN uses 3 message-passing layers; the 1-2-GNN uses 3 layers for the 1-GNN component and 2 layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) for 100 epochs. Data is split 80/20 into train/test with a fixed seed of 42.
+
+The GIN-Graph generator uses a latent dimension of 32, hidden dimension of 128, and is trained for 300 epochs with Adam (lr = 0.001). WGAN-GP uses $\lambda_{\text{GP}} = 10$ and $n_{\text{critic}} = 1$. The Gumbel-Softmax temperature is $\tau = 1.0$ during training and $\tau = 0.1$ during evaluation for sharper discrete outputs.
+
+\subsection{Evaluation Protocol}
+
+For each model-dataset-class combination, we generate 100 explanation graphs and evaluate them using the validation score (Equation~\ref{eq:validation}). We report:
+\begin{itemize}[nosep]
+  \item \textbf{Validity rate}: fraction of explanations passing degree and score thresholds;
+  \item \textbf{Mean validation score}: averaged over all 100 generated graphs;
+  \item \textbf{Mean valid score}: averaged over valid explanations only;
+  \item \textbf{Component scores}: embedding similarity ($s$), prediction probability ($p$), degree score ($d$);
+  \item \textbf{Granularity}: how fine-grained the explanations are.
+\end{itemize}
+
+% ============================================================
+% 5. Results
+% ============================================================
+\section{Results}
+\label{sec:results}
+
+\subsection{$k$-GNN Classification Performance}
+
+Table~\ref{tab:kgnn-results} summarises the classification results. On MUTAG, the 1-2-GNN outperforms the 1-GNN by 5.3 percentage points, consistent with the theoretical advantage of higher-order message passing on molecular graphs with rich local structure. On PROTEINS, the result is reversed: the 1-GNN achieves 78.0\% while the 1-2-GNN reaches only 65.0\%, below the majority-class baseline. The 1-2-GNN has 2.3$\times$ more parameters, and on the relatively simple node features of PROTEINS (3 types vs.\ 7), this additional capacity may lead to overfitting.
+
+\begin{table}[htbp]
+\centering
+\caption{$k$-GNN classification results. Best test accuracy reported over all epochs.}
+\label{tab:kgnn-results}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Dataset} & \textbf{Model} & \textbf{Params} & \textbf{Train Acc} & \textbf{Test Acc} & \textbf{Best Acc} \\
+\midrule
+MUTAG    & 1-GNN   & 21,570 & 86.7\% & 76.3\% & 84.2\% \\
+MUTAG    & 1-2-GNN & 50,370 & 92.7\% & 84.2\% & 89.5\% \\
+\midrule
+PROTEINS & 1-GNN   & 21,058 & 76.6\% & 77.1\% & 78.0\% \\
+PROTEINS & 1-2-GNN & 49,858 & 58.8\% & 62.8\% & 65.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{GIN-Graph Explanation Quality: MUTAG}
+
+Table~\ref{tab:gin-mutag} presents the GIN-Graph results on MUTAG. The fair comparison is on \textbf{class 1 (Non-Mutagen)}, where both models were fully trained for 300 epochs.
+
+\begin{table}[htbp]
+\centering
+\caption{GIN-Graph explanation quality on MUTAG. $\dagger$: only 49 training epochs (needs retraining).}
+\label{tab:gin-mutag}
+\begin{tabular}{llcccccc}
+\toprule
+\textbf{Class} & \textbf{Model} & \textbf{Epochs} & \textbf{Valid\%} & \textbf{Val Score} & $s$ & $p$ & $d$ \\
+\midrule
+0 (Mutagen)     & 1-GNN$^\dagger$   & 49  & 20\% & 0.197 & 0.491 & 0.995 & 0.144 \\
+0 (Mutagen)     & 1-2-GNN & 300 & 29\% & 0.256 & 0.531 & 1.000 & 0.202 \\
+\midrule
+1 (Non-Mutagen) & 1-GNN   & 300 & 78\% & 0.687 & 0.964 & 1.000 & 0.486 \\
+1 (Non-Mutagen) & 1-2-GNN & 300 & \textbf{88\%} & \textbf{0.799} & \textbf{0.995} & 1.000 & \textbf{0.638} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+On class 1, the 1-2-GNN produces explanations with higher validity (88\% vs.\ 78\%), higher validation scores (0.799 vs.\ 0.687), and notably higher degree scores (0.638 vs.\ 0.486), indicating more structurally realistic graphs. The embedding similarity is near-perfect for both models (0.995 vs.\ 0.964), with the 1-2-GNN slightly closer to the class centroid.
+
+Figure~\ref{fig:mutag-explanations} shows the top-ranked explanation graphs for both models on MUTAG class 1.
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[t]{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{results/mutag/1gnn_class1/figures/explanations.png}
+  \caption{1-GNN explanations for Non-Mutagen}
+  \label{fig:mutag-1gnn}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{results/mutag/12gnn_class1/figures/explanations.png}
+  \caption{1-2-GNN explanations for Non-Mutagen}
+  \label{fig:mutag-12gnn}
+\end{subfigure}
+\caption{Top-ranked GIN-Graph explanations on MUTAG class 1 (Non-Mutagen). Node colours indicate atom types (see Figure~\ref{fig:legend}).}
+\label{fig:mutag-explanations}
+\end{figure}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.5\textwidth]{results/mutag/1gnn_class1/figures/mutag_legend.png}
+\caption{MUTAG atom type colour legend. Atoms: C (orange), N (blue), O (red), F (green), I (purple), Cl (light green), Br (brown).}
+\label{fig:legend}
+\end{figure}
+
+The top 1-2-GNN explanations achieve near-perfect validation scores (0.998), with consistent graph sizes (25 nodes, 28 edges). In contrast, the 1-GNN explanations, while still high quality (top score 0.991), show slightly more structural variation.
+
+\subsection{GIN-Graph Explanation Quality: PROTEINS}
+
+Table~\ref{tab:gin-proteins} presents results on PROTEINS. Here the 1-GNN produces substantially better explanations across both classes, consistent with its stronger classification performance.
+
+\begin{table}[htbp]
+\centering
+\caption{GIN-Graph explanation quality on PROTEINS. $\dagger$: only 29 training epochs (needs retraining).}
+\label{tab:gin-proteins}
+\begin{tabular}{llcccccc}
+\toprule
+\textbf{Class} & \textbf{Model} & \textbf{Epochs} & \textbf{Valid\%} & \textbf{Val Score} & $s$ & $p$ & $d$ \\
+\midrule
+0 (Non-Enzyme)  & 1-GNN            & 300 & \textbf{100\%} & \textbf{0.967} & 0.998 & 0.916 & \textbf{0.990} \\
+0 (Non-Enzyme)  & 1-2-GNN$^\dagger$ & 29  & 99\%  & 0.768 & 0.998 & 0.590 & 0.797 \\
+\midrule
+1 (Enzyme)      & 1-GNN            & 300 & \textbf{100\%} & \textbf{0.883} & 0.703 & 1.000 & \textbf{0.985} \\
+1 (Enzyme)      & 1-2-GNN$^\dagger$ & 29  & 71\%  & 0.568 & 0.999 & 0.410 & 0.571 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The 1-GNN achieves 100\% validity on both classes with validation scores of 0.967 and 0.883. The 1-2-GNN results are compromised by undertrained checkpoints (only 29 epochs vs.\ the intended 300), but the low prediction probabilities (0.590 and 0.410) reflect the weak classifier performance (65.0\% accuracy).
+
+\begin{figure}[htbp]
+\centering
+\begin{subfigure}[t]{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{results/proteins/1gnn_class0/figures/explanations.png}
+  \caption{1-GNN explanations for Non-Enzyme}
+  \label{fig:proteins-1gnn}
+\end{subfigure}
+\hfill
+\begin{subfigure}[t]{0.48\textwidth}
+  \centering
+  \includegraphics[width=\textwidth]{results/proteins/1gnn_class1/figures/explanations.png}
+  \caption{1-GNN explanations for Enzyme}
+  \label{fig:proteins-1gnn-c1}
+\end{subfigure}
+\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-GNN). Node colours indicate secondary structure types: helix, sheet, coil/turn.}
+\label{fig:proteins-explanations}
+\end{figure}
+
+\subsection{Metric Decomposition}
+
+Table~\ref{tab:decomposition} provides a detailed comparison of the three validation score components for the fully trained configurations.
+
+\begin{table}[htbp]
+\centering
+\caption{Validation score decomposition for fully trained GIN-Graph models (300 epochs).}
+\label{tab:decomposition}
+\begin{tabular}{llccc}
+\toprule
+\textbf{Configuration} & \textbf{Model} & $s$ (emb.\ sim) & $p$ (pred.\ prob) & $d$ (degree) \\
+\midrule
+MUTAG class 1     & 1-GNN   & 0.964 & 1.000 & 0.486 \\
+MUTAG class 1     & 1-2-GNN & 0.995 & 1.000 & 0.638 \\
+\midrule
+PROTEINS class 0  & 1-GNN   & 0.998 & 0.916 & 0.990 \\
+PROTEINS class 1  & 1-GNN   & 0.703 & 1.000 & 0.985 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+The degree score is the primary differentiator between models on MUTAG: the 1-2-GNN generates graphs whose average degree better matches the target class distribution (0.638 vs.\ 0.486). Both models achieve near-perfect prediction probability ($p \approx 1$), so this component does not discriminate. The embedding similarity, while high for both, is closer to 1.0 for the 1-2-GNN (0.995 vs.\ 0.964).
+
+On PROTEINS, the 1-GNN shows an interesting asymmetry: class 0 (Non-Enzyme) has near-perfect embedding similarity (0.998) while class 1 (Enzyme) has lower similarity (0.703). This suggests that the Enzyme class has a more complex embedding manifold that the generator cannot fully capture.
+
+\subsection{Training Dynamics}
+
+Figure~\ref{fig:training} shows a representative training curve from the MUTAG 1-2-GNN class 1 experiment.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.65\textwidth]{results/mutag/12gnn_class1/figures/training.png}
+\caption{Training curves for GIN-Graph on MUTAG 1-2-GNN class 1, showing the evolution of generator loss, discriminator loss, and GNN guidance loss over 300 epochs.}
+\label{fig:training}
+\end{figure}
+
+% ============================================================
+% 6. Discussion
+% ============================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{Does Higher-Order Message Passing Improve Explanations?}
+
+Our results suggest a nuanced answer: \emph{it depends on the dataset and the classifier's performance}.
+
+On MUTAG, the 1-2-GNN both classifies better and produces better explanations. The pairwise message passing captures bond-level patterns in molecular graphs that the 1-GNN misses, and the GIN-Graph generator leverages this richer representation to produce more structurally valid class-representative graphs. The 10 percentage point improvement in validity (88\% vs.\ 78\%) and the 0.11 improvement in validation score (0.80 vs.\ 0.69) are substantial.
+
+On PROTEINS, the situation is reversed. The 1-2-GNN fails to learn effective classification (65.0\%, below the 1-GNN's 78.0\%), and consequently, the GIN-Graph generator cannot produce meaningful explanations from a weak classifier. This illustrates a fundamental coupling: \emph{explanation quality is bounded by classifier quality}. A model that does not understand the data cannot produce informative explanations, regardless of its theoretical expressiveness.
+
+\subsection{The Granularity Problem}
+
+All generated explanations have granularity near 0, meaning they are as large as typical graphs in the dataset. This is a known limitation of the GIN-Graph approach: the generator produces graphs of a fixed maximum size $N$, and the Gumbel-Softmax sampling tends to activate most nodes. For MUTAG ($N = 28$, average graph $\sim$18 nodes), the explanations use 20--27 nodes. For PROTEINS ($N = 50$, average graph $\sim$26 nodes), they use 45--50 nodes.
+
+Model-level explanations are inherently coarse-grained: they represent ``what a typical class member looks like'' rather than ``which substructure drives the prediction.'' For fine-grained explanations, instance-level methods like GNNExplainer would be more appropriate.
+
+\subsection{Limitations}
+
+Several limitations qualify our findings:
+
+\textbf{Undertrained checkpoints.} The MUTAG 1-GNN class 0 GIN was only trained for 49 epochs, and the PROTEINS 1-2-GNN GIN for only 29 epochs. These incomplete runs make cross-model comparison on those configurations unreliable.
+
+\textbf{Single seed.} All experiments use a single data split (seed 42) without cross-validation. The small size of MUTAG (188 graphs, 38 test) means that test accuracy fluctuates by several percentage points across splits.
+
+\textbf{No cross-validation.} Best test accuracy is reported as the maximum over epochs (early stopping by oracle), which overestimates generalisation performance.
+
+\textbf{Classifier dependence.} GIN-Graph explanations are fundamentally constrained by classifier quality. The PROTEINS 1-2-GNN comparison is confounded because the classifier itself underperforms, making it impossible to isolate the effect of higher-order message passing on explanation quality.
+
+\textbf{Evaluation metrics.} The validation score $v = (s \cdot p \cdot d)^{1/3}$ can be dominated by a single low component. The degree score, which measures structural realism via average degree alone, is a coarse proxy that does not capture finer structural properties like motif frequencies or degree distributions.
+
+\subsection{Future Work}
+
+Several directions could strengthen this investigation:
+\begin{itemize}[nosep]
+  \item Retrain all GIN-Graph checkpoints to completion for fair cross-model comparison.
+  \item Use cross-validation and multiple random seeds for robust accuracy estimates.
+  \item Investigate why the 1-2-GNN underperforms on PROTEINS (potential overfitting, hyperparameter sensitivity, or dataset characteristics).
+  \item Compare with instance-level explanation methods (GNNExplainer, PGExplainer) to assess whether higher-order models also improve local explanations.
+  \item Extend to the 1-2-3-GNN architecture, which adds 3-set (triplet) message passing for even higher expressiveness.
+  \item Incorporate richer structural metrics beyond average degree, such as motif counts, clustering coefficients, or graph spectral properties.
+\end{itemize}
+
+% ============================================================
+% 7. Conclusion
+% ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We compared a standard 1-GNN with a hierarchical 1-2-GNN for model-level explanation generation using the GIN-Graph framework. On MUTAG, the 1-2-GNN produces both better classification (89.5\% vs.\ 84.2\%) and better explanations (88\% validity, 0.80 validation score vs.\ 78\% validity, 0.69 validation score), supporting the hypothesis that higher-order message passing improves interpretability. On PROTEINS, the 1-GNN dominates, highlighting that explanation quality is fundamentally tied to classifier performance, and that the benefits of higher-order models are dataset-dependent.
+
+Our fully differentiable dense wrapper enables, for the first time, GIN-Graph explanation generation for hierarchical $k$-GNN architectures while maintaining gradient flow through both node features and adjacency matrices. This technical contribution opens the door to studying interpretability across the $k$-WL expressiveness hierarchy.
+
+% ============================================================
+% References
+% ============================================================
+\bibliographystyle{plain}
+\begin{thebibliography}{11}
+
+\bibitem[Borgwardt et~al.(2005)]{borgwardt2005protein}
+K.~M. Borgwardt, C.~S. Ong, S.~Schönauer, S.~V.~N. Vishwanathan, A.~J. Smola, and H.-P. Kriegel.
+\newblock Protein function prediction via graph kernels.
+\newblock \emph{Bioinformatics}, 21(suppl\_1):i47--i56, 2005.
+
+\bibitem[Cai et~al.(1992)]{cai1992optimal}
+J.-Y. Cai, M.~Fürer, and N.~Immerman.
+\newblock An optimal lower bound on the number of variables for graph identification.
+\newblock \emph{Combinatorica}, 12(4):389--410, 1992.
+
+\bibitem[Debnath et~al.(1991)]{debnath1991structure}
+A.~K. Debnath, R.~L. {Lopez de Compadre}, G.~Debnath, A.~J. Shusterman, and C.~Hansch.
+\newblock Structure-activity relationship of mutagenic aromatic and heteroaromatic nitro compounds.
+\newblock \emph{J.\ Med.\ Chem.}, 34(2):786--797, 1991.
+
+\bibitem[Gulrajani et~al.(2017)]{gulrajani2017improved}
+I.~Gulrajani, F.~Ahmed, M.~Arjovsky, V.~Dumoulin, and A.~Courville.
+\newblock Improved training of {W}asserstein {GAN}s.
+\newblock In \emph{NeurIPS}, 2017.
+
+\bibitem[Jang et~al.(2017)]{jang2017categorical}
+E.~Jang, S.~Gu, and B.~Poole.
+\newblock Categorical reparameterization with {G}umbel-softmax.
+\newblock In \emph{ICLR}, 2017.
+
+\bibitem[Kipf and Welling(2017)]{kipf2017semi}
+T.~N. Kipf and M.~Welling.
+\newblock Semi-supervised classification with graph convolutional networks.
+\newblock In \emph{ICLR}, 2017.
+
+\bibitem[Luo et~al.(2020)]{luo2020parameterized}
+D.~Luo, W.~Cheng, D.~Xu, W.~Yu, B.~Zong, H.~Chen, and X.~Zhang.
+\newblock Parameterized explainer for graph neural network.
+\newblock In \emph{NeurIPS}, 2020.
+
+\bibitem[Morris et~al.(2019)]{morris2019weisfeiler}
+C.~Morris, M.~Ritzert, M.~Fey, W.~L. Hamilton, J.~E. Lenssen, G.~Rattan, and M.~Grohe.
+\newblock Weisfeiler and {L}eman go neural: Higher-order graph neural networks.
+\newblock In \emph{AAAI}, 2019.
+
+\bibitem[Sun et~al.(2025)]{sun2025gingraph}
+J.~Sun, S.~Pei, F.~Zhang, and N.~V. Chawla.
+\newblock {GIN-Graph}: A generative interpretation network for model-level explanation of graph neural networks.
+\newblock \emph{Neurocomputing}, 2025.
+
+\bibitem[Xu et~al.(2019)]{xu2019powerful}
+K.~Xu, W.~Hu, J.~Leskovec, and S.~Jegelka.
+\newblock How powerful are graph neural networks?
+\newblock In \emph{ICLR}, 2019.
+
+\bibitem[Ying et~al.(2019)]{ying2019gnnexplainer}
+R.~Ying, D.~Bourgeois, J.~You, M.~Zitnik, and J.~Leskovec.
+\newblock {GNN}Explainer: Generating explanations for graph neural networks.
+\newblock In \emph{NeurIPS}, 2019.
+
+\bibitem[Yuan et~al.(2020)]{yuan2020xgnn}
+H.~Yuan, J.~Tang, X.~Hu, and S.~Ji.
+\newblock {XGNN}: Towards model-level explanations of graph neural networks.
+\newblock In \emph{KDD}, 2020.
+
+\bibitem[Yuan et~al.(2022)]{yuan2022explainability}
+H.~Yuan, H.~Yu, S.~Gui, and S.~Ji.
+\newblock Explainability in graph neural networks: A taxonomic survey.
+\newblock \emph{IEEE TPAMI}, 45(5):5782--5799, 2022.
+
+\end{thebibliography}
+
+\end{document}
