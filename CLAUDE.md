@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Research project investigating whether higher-order Graph Neural Networks (k-GNNs) provide better structural interpretations compared to standard 1-GNNs using model-level explanation generation via the GIN-Graph method on the MUTAG and PROTEINS datasets.
+Research project investigating whether a hierarchical 1-2-GNN provides better structural interpretations compared to a standard 1-GNN using model-level explanation generation via the GIN-Graph method. We compare the two architectures across the MUTAG and PROTEINS datasets.
 
 ## Key Fixes Applied
 
@@ -29,30 +29,31 @@ python test_integration.py  # Comprehensive integration tests (fast, no full tra
 
 ### Training
 ```bash
-# Train k-GNN models (default: MUTAG)
-python train_kgnn.py --all --epochs 100
+# Train the two models in the study
 python train_kgnn.py --model 1gnn --epochs 100
-python train_kgnn.py --model 123gnn --epochs 100
+python train_kgnn.py --model 12gnn --epochs 100
 
-# Train on different datasets (mutag, dd, proteins)
-python train_kgnn.py --dataset mutag --model 1gnn --epochs 100
-python train_kgnn.py --dataset dd --model 1gnn --epochs 100
+# On PROTEINS
 python train_kgnn.py --dataset proteins --model 1gnn --epochs 100
+python train_kgnn.py --dataset proteins --model 12gnn --epochs 100
 
 # Train GIN-Graph generators (requires pre-trained k-GNN)
 # Models + intermediate samples → ./gin_checkpoints/, final analysis → ./results/
 python train_gin_graph.py --dataset mutag --model 1gnn --target_class 0 --epochs 300
+python train_gin_graph.py --dataset mutag --model 12gnn --target_class 0 --epochs 300
 python train_gin_graph.py --dataset proteins --model 1gnn --target_class 0 --epochs 300
+python train_gin_graph.py --dataset proteins --model 12gnn --target_class 0 --epochs 300
 ```
 
 ### Analysis (no training)
 ```bash
-# Evaluate a k-GNN checkpoint on the test set
+# Evaluate k-GNN checkpoints on test set
 python research.py gnn --model 1gnn --dataset mutag
+python research.py gnn --model 12gnn --dataset mutag
 
 # Generate explanations from existing GIN-Graph checkpoint
 python research.py gin --model 1gnn --dataset mutag --target_class 0
-python research.py gin --model 123gnn --dataset mutag --target_class 0 --num_samples 200
+python research.py gin --model 12gnn --dataset mutag --target_class 0 --num_samples 200
 
 # Outputs go to results/{dataset}/{model}/ or results/{dataset}/{model}_class{N}/
 ```
@@ -75,10 +76,12 @@ All results regenerated with corrected embedding similarity metric (s != p).
 |----------|---------|-------|--------|--------|----------|
 | MUTAG    | 1-GNN   | 84.2% | 49ep (needs retrain) | 300ep | done |
 | MUTAG    | 1-2-GNN | 89.5% | 300ep | 300ep | done |
-| MUTAG    | 1-2-3-GNN | 89.5% | 1ep (needs retrain) | 300ep | done |
 | PROTEINS | 1-GNN   | 78.0% | 300ep | 300ep | done |
 | PROTEINS | 1-2-GNN | 65.0% | 29ep (needs retrain) | 29ep (needs retrain) | done |
-| PROTEINS | 1-2-3-GNN | not trained | — | — | — |
+
+**Remaining gaps:**
+- MUTAG 1-GNN class 0 GIN needs retraining (current checkpoint only 49 epochs)
+- PROTEINS 1-2-GNN GIN needs retraining (current checkpoint only 29 epochs)
 
 ## Architecture
 
@@ -94,22 +97,22 @@ All results regenerated with corrected embedding similarity metric (s != p).
 **Models (`models_kgnn.py`)**: k-GNN implementations using k-set message passing
 - `OneGNNLayer`: Standard node-level message passing
 - `KSetLayer`: Generic layer for 2-GNN (node pairs) and 3-GNN (triplets)
-- Supported models: **1-GNN, 1-2-GNN, 1-2-3-GNN** (hierarchical only)
+- Study models: **1-GNN** (standard) and **1-2-GNN** (hierarchical with pairwise message passing)
+- Extended: 1-2-3-GNN also available via `--model 123gnn` (see Extended Model Support below)
 - Standalone 2-GNN/3-GNN class definitions remain in the file but are removed from all factories, CLIs, and tests
 - **k-Set Sampling**: For large graphs (PROTEINS, DD), k-sets are randomly sampled to limit memory/time:
   - `max_pairs=5000` for 2-sets (vs 192K pairs for 620-node graph)
-  - `max_triplets=3000` for 3-sets (vs 39M triplets for 620-node graph)
-  - Adjustable in `_build_2sets()` and `_build_3sets()` methods
+  - Adjustable in `_build_2sets()` method
 
 **Generator (`gin_generator.py`)**: Creates graphs from noise using Gumbel-Softmax for differentiable discrete sampling
 - `GINGenerator`: Outputs adjacency matrix and node features
 - `GINDiscriminator`: WGAN-GP discriminator for realism validation
 
 **Model Wrapper (`model_wrapper.py`)**: Differentiable bridge between dense generator output and pretrained k-GNN
-- `DenseToSparseWrapper`: Uses dense forward passes for hierarchical models (1gnn, 12gnn, 123gnn)
+- `DenseToSparseWrapper`: Uses dense forward passes for hierarchical models
   - **1-GNN**: Dense batched message passing `σ(H·W1 + A·H·W2)` — fully differentiable through adj
   - **2-GNN**: Dense pair features `[h_min || h_max || adj[i,j]]` + einsum aggregation — fully differentiable through adj
-  - **3-GNN**: Optimized sparse with `torch.no_grad()` for structure + soft iso-types — partial gradient
+  - Both components are fully differentiable — the continuous adjacency matrix from the generator flows through all operations
 
 **Training (`train_gin_graph.py`)**: Joint optimization combining:
 - WGAN-GP loss (graph realism)
@@ -164,3 +167,12 @@ All hyperparameters are centralized in `config.py`:
 - `./gin_checkpoints/{dataset}/`: GIN-Graph models per dataset (e.g., `gin_checkpoints/mutag/1gnn_class0.pt`); `training/` subfolder holds intermediate checkpoints (`ckpt_*.pt`) and samples (`samples_*.npz`)
 - `./results/{dataset}/{model}/`: k-GNN evaluation from `research.py gnn` (report.json)
 - `./results/{dataset}/{model}_class{N}/`: GIN-Graph analysis from `research.py gin` (figures/, explanations.npz, report.json)
+
+## Extended Model Support
+
+The codebase also supports functionality beyond the current 1-GNN vs 1-2-GNN study:
+
+- **1-2-3-GNN**: Adds 3-set (node triplet) message passing. Uses optimized sparse construction with `torch.no_grad()` for structure and soft iso-types for partial gradient flow. Available via `--model 123gnn`. Dense wrapper has partial gradient (3-GNN component uses sparse path).
+- **DD dataset**: 1178 large protein graphs (up to 500 nodes, 89 features). Excluded due to memory/time constraints for GIN-Graph training. Available via `--dataset dd`.
+- **Standalone 2-GNN / 3-GNN**: Class definitions remain in `models_kgnn.py` but are removed from the factory, CLIs, and tests. These lack the 1-GNN component needed for differentiable GIN-Graph training.
+- **k-Set Sampling for 3-sets**: `max_triplets=3000` in `_build_3sets()` for memory-constrained 3-GNN training.

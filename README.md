@@ -1,29 +1,26 @@
 stuff to do:
-1. ~~Run experiments across datasets~~ DONE (MUTAG: all 3 models, PROTEINS: 1gnn + 12gnn)
+1. ~~Run experiments across datasets~~ DONE (MUTAG + PROTEINS, 1-GNN vs 1-2-GNN)
 2. ~~analyze and compare the generated explanations~~ DONE (all results regenerated with corrected embedding similarity)
 3. draw conclusions about whether higher-order k-GNNs produce better interpretations
 
 remaining gaps:
-- MUTAG 123gnn class0 GIN needs retraining (current checkpoint only 1 epoch)
 - MUTAG 1gnn class0 GIN needs retraining (current checkpoint only 49 epochs)
 - PROTEINS 12gnn GIN needs retraining (current checkpoint only 29 epochs)
-- PROTEINS 123gnn: k-GNN not trained yet, no GIN experiments
 
 
 # k-GNN Interpretation with GIN-Graph
 
-This project investigates whether higher-order Graph Neural Networks (k-GNNs) provide better structural interpretations compared to standard 1-GNNs. We use the GIN-Graph method for model-level explanation generation.
+This project investigates whether a hierarchical 1-2-GNN provides better structural interpretations compared to a standard 1-GNN. We use the GIN-Graph method for model-level explanation generation and compare the two architectures across the MUTAG and PROTEINS datasets.
 
 ## Research Question
 
-**Does using higher-order k-GNN architectures lead to better interpretable patterns when generating model-level explanations?**
+**Does adding 2-set (node-pair) message passing on top of a standard GNN lead to more interpretable model-level explanations?**
 
 We compare:
-- **1-GNN**: Standard message passing on nodes
-- **1-2-GNN**: Hierarchical model using pairs of nodes
-- **1-2-3-GNN**: Full hierarchical model using triplets
+- **1-GNN**: Standard message passing on nodes (1-WL equivalent)
+- **1-2-GNN**: Hierarchical model — runs 1-GNN first, then 2-GNN on node pairs using the learned embeddings
 
-> **Note on standalone 2-GNN / 3-GNN**: These models are available for k-GNN training but are **on standby** for GIN-Graph explanation generation. The hierarchical variants (1-2-GNN, 1-2-3-GNN) are recommended because they include a 1-GNN component that provides differentiable gradient flow through the adjacency matrix during generation. Standalone 2-GNN/3-GNN rely entirely on k-set construction which is non-differentiable through the generator, causing GIN-Graph training to stagnate.
+The 1-2-GNN enriches the graph representation with pairwise structural information (which pairs of nodes are connected, how pairs relate to neighboring pairs) while keeping the 1-GNN component for differentiable gradient flow during GIN-Graph training.
 
 ## Project Structure
 
@@ -67,22 +64,29 @@ pip install -r requirements.txt
 ### 1. Train k-GNN Models
 
 ```bash
-# Train all models
-python train_kgnn.py --all --epochs 100
-
-# Or train specific model
+# Train the two models in the study
 python train_kgnn.py --model 1gnn --epochs 100
 python train_kgnn.py --model 12gnn --epochs 100
-python train_kgnn.py --model 123gnn --epochs 100
+
+# On PROTEINS
+python train_kgnn.py --dataset proteins --model 1gnn --epochs 100
+python train_kgnn.py --dataset proteins --model 12gnn --epochs 100
 ```
 
 ### 2. Train GIN-Graph Generators
 
 ```bash
-# Generate explanations for the Mutagen class (0)
-python train_gin_graph.py --model 1gnn --target_class 0 --epochs 300
-python train_gin_graph.py --model 12gnn --target_class 0 --epochs 300
-python train_gin_graph.py --model 123gnn --target_class 0 --epochs 300
+# MUTAG — both classes for each model
+python train_gin_graph.py --dataset mutag --model 1gnn --target_class 0 --epochs 300
+python train_gin_graph.py --dataset mutag --model 1gnn --target_class 1 --epochs 300
+python train_gin_graph.py --dataset mutag --model 12gnn --target_class 0 --epochs 300
+python train_gin_graph.py --dataset mutag --model 12gnn --target_class 1 --epochs 300
+
+# PROTEINS — both classes for each model
+python train_gin_graph.py --dataset proteins --model 1gnn --target_class 0 --epochs 300
+python train_gin_graph.py --dataset proteins --model 1gnn --target_class 1 --epochs 300
+python train_gin_graph.py --dataset proteins --model 12gnn --target_class 0 --epochs 300
+python train_gin_graph.py --dataset proteins --model 12gnn --target_class 1 --epochs 300
 ```
 
 ### 3. Analyze Results (no training)
@@ -105,9 +109,8 @@ Standard GNNs have the same expressive power as the 1-dimensional Weisfeiler-Lem
 
 - **1-GNN**: Message passing between individual nodes
 - **2-GNN**: Message passing between pairs of nodes
-- **3-GNN**: Message passing between triplets of nodes
 
-Higher k values capture more complex structural patterns but at increased computational cost.
+Higher k values capture more complex structural patterns but at increased computational cost. Our study focuses on the step from k=1 to k=2, which is the most practical increase in expressiveness.
 
 ### GIN-Graph (Yue et al., 2025)
 
@@ -128,10 +131,8 @@ A key challenge in applying GIN-Graph to higher-order k-GNNs is maintaining grad
 |-----------|----------|--------------|
 | **1-GNN** | Dense batched message passing: `σ(H·W1 + A·H·W2)` | Full (through adj) |
 | **2-GNN** | Dense pair features with einsum aggregation | Full (through adj) |
-| **3-GNN** | Sparse k-set construction with soft iso-types | Partial (features + soft iso) |
 
-- **1-GNN + 2-GNN**: Fully differentiable — the continuous adjacency matrix from the generator flows through all operations, so the GNN guidance loss provides gradient for both node features and graph structure.
-- **3-GNN**: Uses optimized sparse construction (`torch.no_grad()` for structure, soft iso-types for partial gradient). Full dense 3-set tensors `[B,N,N,N,D]` would exceed memory for most graph sizes.
+Both the 1-GNN and 2-GNN components are fully differentiable — the continuous adjacency matrix from the generator flows through all operations, so the GNN guidance loss provides gradient for both node features and graph structure.
 
 ## Evaluation Metrics
 
@@ -152,25 +153,27 @@ k = 1 - min(1, num_nodes / avg_class_nodes)
 - 0: Coarse-grained (full graph patterns)
 - →1: Fine-grained (small substructures)
 
-## Expected Results
+## Datasets
 
-### MUTAG Dataset
+Experiments are conducted on **MUTAG** and **PROTEINS**.
+
+### MUTAG
 
 The MUTAG dataset contains 188 molecular graphs classified as mutagenic or non-mutagenic. Key structural features include:
-- NO₂ groups (strong mutagenic indicator)
-- NH₂ groups (also mutagenic)
+- NO2 groups (strong mutagenic indicator)
+- NH2 groups (also mutagenic)
 - Carbon ring structures
 
-### Datasets
+### PROTEINS
 
-Experiments are conducted on **MUTAG** and **PROTEINS**. The **DD** dataset is excluded from the current experiments due to its large graph sizes (up to 500 nodes) and high feature dimensionality (89 features), which make GIN-Graph training prohibitively slow and memory-intensive. DD support is retained in the codebase for future work.
+The PROTEINS dataset contains 1113 protein graphs classified as enzyme or non-enzyme. Node features represent secondary structure types (Helix, Sheet, Coil/Turn).
 
 ### Hypothesis
 
-Higher-order k-GNNs should produce explanations that:
-1. Better capture multi-node patterns (e.g., functional groups)
-2. Have higher validation scores
-3. Show more consistent structural motifs
+The 1-2-GNN should produce explanations that:
+1. Better capture multi-node patterns (e.g., functional groups, structural motifs)
+2. Have higher validation scores due to richer structural representation
+3. Show more consistent structural motifs across generated samples
 
 ## Configuration
 
@@ -185,12 +188,11 @@ Edit `config.py` to adjust:
 The project uses a 3-stage directory layout matching the pipeline:
 
 ```
-checkpoints/                          ← Stage 1: Train k-GNNs
+checkpoints/                          <- Stage 1: Train k-GNNs
 ├── mutag_1gnn.pt
-├── mutag_12gnn.pt
-└── mutag_123gnn.pt
+└── mutag_12gnn.pt
 
-gin_checkpoints/                      ← Stage 2: Train GIN-Graph generators
+gin_checkpoints/                      <- Stage 2: Train GIN-Graph generators
 ├── mutag/
 │   ├── 1gnn_class0.pt               # Final GIN-Graph models
 │   ├── 12gnn_class0.pt
@@ -201,7 +203,7 @@ gin_checkpoints/                      ← Stage 2: Train GIN-Graph generators
     ├── 1gnn_class0.pt
     └── training/
 
-results/                              ← Stage 3: Analysis results
+results/                              <- Stage 3: Analysis results
 ├── mutag/
 │   ├── 1gnn/report.json             # k-GNN evaluation
 │   ├── 1gnn_class0/                 # GIN-Graph analysis per class
@@ -219,6 +221,14 @@ Intermediate `.npz` sample files can be visualized offline with `visualize_stand
 ```bash
 python visualize_standalone.py gin_checkpoints/mutag/training/samples_mutag_12gnn_epoch100.npz -o fig.png
 ```
+
+## Extended Model Support
+
+The codebase also supports **1-2-3-GNN** (hierarchical triplet model) and the **DD** dataset, though these are outside the scope of the current study:
+
+- **1-2-3-GNN**: Adds 3-set (node triplet) message passing. Uses optimized sparse construction with `torch.no_grad()` for structure and soft iso-types for partial gradient flow. Available via `--model 123gnn`.
+- **DD dataset**: 1178 large protein graphs (up to 500 nodes, 89 features). Excluded due to memory/time constraints for GIN-Graph training. Available via `--dataset dd`.
+- **Standalone 2-GNN / 3-GNN**: Class definitions remain in `models_kgnn.py` but are removed from the factory, CLIs, and tests. These lack the 1-GNN component needed for differentiable GIN-Graph training.
 
 ## References
 
