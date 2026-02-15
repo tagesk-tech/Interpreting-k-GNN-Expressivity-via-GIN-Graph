@@ -440,7 +440,7 @@ On class 1 (Non-Mutagen), the 1-2-GNN produces explanations with higher validity
 
 On class 0 (Mutagen), both models struggle equally ($\sim$35\% validity), suggesting that the Mutagen class is inherently harder to generate. This difficulty likely stems from two factors: class imbalance (Non-Mutagen is the majority class at 125/188 = 66.5\%, providing the generator with more real examples to learn from) and structural diversity (mutagenic compounds exhibit varied functional groups---nitro, amino, halogen---making a single representative graph harder to produce). The 1-2-GNN achieves higher embedding similarity (0.893 vs.\ 0.600) but lower prediction probability (0.627 vs.\ 1.000), indicating a tension between embedding-space fidelity and classification confidence.
 
-Qualitatively, the two models generate strikingly different atom type distributions for class 0 (Figure~\ref{fig:mutag-class0}). The 1-GNN produces C/N/O-dominated structures consistent with nitrogen-containing mutagenic motifs, while the 1-2-GNN generates Cl-heavy graphs---suggesting that the pairwise message passing leads the model to associate mutagenicity with halogenated structures rather than nitroaromatic ones. This divergence reveals that the two architectures learn qualitatively different internal representations of the same class.
+Qualitatively, the two models generate strikingly different atom type distributions for class 0 (Figure~\ref{fig:mutag-class0}). The 1-GNN produces C/N/O-dominated structures (49\% C, 25\% N, 25\% O) consistent with nitrogen-containing mutagenic motifs, while the 1-2-GNN generates halogen-heavy graphs dominated by fluorine and oxygen (36\% F, 34\% O, 20\% Cl)---suggesting that the pairwise message passing leads the model to associate mutagenicity with halogenated structures rather than nitroaromatic ones. This divergence reveals that the two architectures learn qualitatively different internal representations of the same class.
 
 \begin{figure}[htbp]
 \centering
@@ -457,7 +457,7 @@ Qualitatively, the two models generate strikingly different atom type distributi
   \caption{1-2-GNN explanations for Mutagen}
   \label{fig:mutag-12gnn-c0}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on MUTAG class 0 (Mutagen). The 1-GNN generates C/N/O-rich structures (orange/blue/red), while the 1-2-GNN produces Cl-dominated graphs (green). Node colours indicate atom types (see Figure~\ref{fig:legend}).}
+\caption{Top-ranked GIN-Graph explanations on MUTAG class 0 (Mutagen). The 1-GNN generates C/N/O-rich structures (orange/blue/red), while the 1-2-GNN produces halogen-heavy graphs dominated by F and O (green/red). Node colours indicate atom types (see Figure~\ref{fig:legend}).}
 \label{fig:mutag-class0}
 \end{figure}
 
@@ -616,7 +616,7 @@ On PROTEINS, the situation is reversed. The 1-2-GNN fails to learn effective cla
 
 \subsection{Qualitative Differences in Generated Explanations}
 
-Beyond the quantitative metrics, the generated explanations reveal qualitative differences in what each model has learned. On MUTAG class 0 (Mutagen), the 1-GNN generates molecules dominated by carbon, nitrogen, and oxygen---atom types associated with classical mutagenic motifs such as nitroaromatic groups. The 1-2-GNN, by contrast, produces chlorine-heavy structures, suggesting that its pairwise message passing leads it to associate mutagenicity with halogenated compounds. Both represent valid mutagenic subclasses, but the divergence demonstrates that the two architectures learn fundamentally different internal representations of the same chemical class.
+Beyond the quantitative metrics, the generated explanations reveal qualitative differences in what each model has learned. On MUTAG class 0 (Mutagen), the 1-GNN generates molecules dominated by carbon, nitrogen, and oxygen (49\% C, 25\% N, 25\% O)---atom types associated with classical mutagenic motifs such as nitroaromatic groups. The 1-2-GNN, by contrast, produces halogen-heavy structures dominated by fluorine and oxygen (36\% F, 34\% O, 20\% Cl), suggesting that its pairwise message passing leads it to associate mutagenicity with halogenated compounds. Both represent valid mutagenic subclasses, but the divergence demonstrates that the two architectures learn fundamentally different internal representations of the same chemical class.
 
 On MUTAG class 1 (Non-Mutagen), both models converge on carbon-dominated backbones, though the 1-GNN includes substantial iodine presence while the 1-2-GNN produces more chemically conventional C/N/O structures. This convergence on the majority class is consistent with the higher validity rates: the Non-Mutagen class has more uniform structural patterns that the generator can capture.
 
