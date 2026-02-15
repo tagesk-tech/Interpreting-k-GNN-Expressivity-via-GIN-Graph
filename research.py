@@ -51,7 +51,7 @@ def _load_kgnn_checkpoint(checkpoint_dir, dataset_name, model_name, device):
             f"Checkpoint not found: {path}\n"
             f"Train first: python train_kgnn.py --dataset {dataset_name} --model {model_name}"
         )
-    ckpt = torch.load(path, map_location=device)
+    ckpt = torch.load(path, map_location=device, weights_only=False)
     model = get_model(
         ckpt['model_name'],
         input_dim=ckpt['input_dim'],
@@ -180,7 +180,7 @@ def cmd_gin(args):
     data_config = DataConfig.from_dataset(dataset_name)
 
     # Read config from checkpoint to match hidden_dim used during training
-    gin_ckpt = torch.load(gin_path, map_location=device)
+    gin_ckpt = torch.load(gin_path, map_location=device, weights_only=False)
     gin_config = gin_ckpt.get('config', GINGraphConfig())
 
     trainer = GINGraphTrainer(

@@ -488,7 +488,7 @@ class GINGraphTrainer:
     
     def load_checkpoint(self, path: str):
         """Load model checkpoint."""
-        checkpoint = torch.load(path, map_location=self.device)
+        checkpoint = torch.load(path, map_location=self.device, weights_only=False)
         self.generator.load_state_dict(checkpoint['generator_state_dict'])
         self.discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
         self.optimizer_G.load_state_dict(checkpoint['optimizer_G_state_dict'])
@@ -514,7 +514,7 @@ def load_pretrained_kgnn(
             f"Please train the model first: python train_kgnn.py --dataset {dataset_name} --model {model_name}"
         )
     
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     
     model = get_model(
         checkpoint['model_name'],
