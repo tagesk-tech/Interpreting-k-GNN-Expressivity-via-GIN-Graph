@@ -1,9 +1,9 @@
 # Machine Learning artifacts
 data/
-checkpoints/
-gin_checkpoints/
-results/
-figures/
+/figures/
+
+# Keep intermediate GIN-Graph training snapshots out of repo (large)
+gin_checkpoints/*/training/
 
 # Python
 __pycache__/

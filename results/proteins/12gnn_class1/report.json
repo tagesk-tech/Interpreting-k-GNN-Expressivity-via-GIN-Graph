@@ -1,0 +1,120 @@
+{
+  "model": "12gnn",
+  "dataset": "proteins",
+  "target_class": 1,
+  "class_label": "Enzyme",
+  "num_samples": 100,
+  "trainer_epoch": 299,
+  "trainer_steps": 2400,
+  "total_generated": 100,
+  "num_valid": 100,
+  "validity_rate": 1.0,
+  "mean_validation_score": 0.7421956815504883,
+  "mean_valid_score": 0.7421956815504883,
+  "mean_prediction_prob": 0.4190131723880768,
+  "mean_embedding_sim": 0.9973827743530274,
+  "mean_degree_score": 0.9789044791310686,
+  "mean_granularity": 0.0,
+  "top_explanations": [
+    {
+      "rank": 1,
+      "index": 17,
+      "validation_score": 0.7477265364651968,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 46,
+      "num_edges": 84,
+      "degree_score": 0.9996198074080754,
+      "granularity": 0.0
+    },
+    {
+      "rank": 2,
+      "index": 82,
+      "validation_score": 0.747690991346403,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 45,
+      "num_edges": 82,
+      "degree_score": 0.9999597676530626,
+      "granularity": 0.0
+    },
+    {
+      "rank": 3,
+      "index": 42,
+      "validation_score": 0.7476327657019198,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 49,
+      "num_edges": 89,
+      "degree_score": 0.99981153731722,
+      "granularity": 0.0
+    },
+    {
+      "rank": 4,
+      "index": 60,
+      "validation_score": 0.7476123435412954,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 45,
+      "num_edges": 82,
+      "degree_score": 0.9999597676530626,
+      "granularity": 0.0
+    },
+    {
+      "rank": 5,
+      "index": 70,
+      "validation_score": 0.7475576174441638,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 49,
+      "num_edges": 89,
+      "degree_score": 0.99981153731722,
+      "granularity": 0.0
+    },
+    {
+      "rank": 6,
+      "index": 48,
+      "validation_score": 0.7475474745689267,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 47,
+      "num_edges": 86,
+      "degree_score": 0.9989702546066679,
+      "granularity": 0.0
+    },
+    {
+      "rank": 7,
+      "index": 81,
+      "validation_score": 0.7475160840839012,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 46,
+      "num_edges": 84,
+      "degree_score": 0.9996198074080754,
+      "granularity": 0.0
+    },
+    {
+      "rank": 8,
+      "index": 52,
+      "validation_score": 0.7475108715202916,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 46,
+      "num_edges": 84,
+      "degree_score": 0.9996198074080754,
+      "granularity": 0.0
+    },
+    {
+      "rank": 9,
+      "index": 28,
+      "validation_score": 0.7474983908582981,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 46,
+      "num_edges": 84,
+      "degree_score": 0.9996198074080754,
+      "granularity": 0.0
+    },
+    {
+      "rank": 10,
+      "index": 1,
+      "validation_score": 0.7474775625841288,
+      "prediction_probability": 0.4190131723880768,
+      "num_nodes": 48,
+      "num_edges": 87,
+      "degree_score": 0.9992843633060199,
+      "granularity": 0.0
+    }
+  ]
+}
