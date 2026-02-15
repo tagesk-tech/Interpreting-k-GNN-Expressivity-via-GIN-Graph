@@ -70,18 +70,14 @@ python research.py gin --model 12gnn --dataset mutag --target_class 0 --num_samp
 **DD dataset excluded**: DD is excluded from the current experiments due to its large graph sizes (up to 500 nodes) and high feature dimensionality (89 features), which make GIN-Graph training prohibitively slow and memory-intensive. The codebase retains DD support for future work.
 
 ### Current Experiment Status
-All results regenerated with corrected embedding similarity metric (s != p).
+All experiments complete. All GIN-Graph models trained for 300 epochs. Results regenerated 2026-02-15.
 
 | Dataset  | Model   | k-GNN | GIN c0 | GIN c1 | Analysis |
 |----------|---------|-------|--------|--------|----------|
-| MUTAG    | 1-GNN   | 84.2% | 49ep (needs retrain) | 300ep | done |
+| MUTAG    | 1-GNN   | 89.5% | 300ep | 300ep | done |
 | MUTAG    | 1-2-GNN | 89.5% | 300ep | 300ep | done |
-| PROTEINS | 1-GNN   | 78.0% | 300ep | 300ep | done |
-| PROTEINS | 1-2-GNN | 65.0% | 29ep (needs retrain) | 29ep (needs retrain) | done |
-
-**Remaining gaps:**
-- MUTAG 1-GNN class 0 GIN needs retraining (current checkpoint only 49 epochs)
-- PROTEINS 1-2-GNN GIN needs retraining (current checkpoint only 29 epochs)
+| PROTEINS | 1-GNN   | 77.6% | 300ep | 300ep | done |
+| PROTEINS | 1-2-GNN | 68.6% | 300ep | 300ep | done |
 
 ## Architecture
 
