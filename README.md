@@ -1,11 +1,10 @@
-stuff to do:
-1. ~~Run experiments across datasets~~ DONE (MUTAG + PROTEINS, 1-GNN vs 1-2-GNN)
-2. ~~analyze and compare the generated explanations~~ DONE (all results regenerated with corrected embedding similarity)
-3. draw conclusions about whether higher-order k-GNNs produce better interpretations
+att göra Max: 
+1. Förstå kopplinen mellan datasetet och output från GIN. Titta på flera grafer som genereras kanske bygg ut ett nytt dataset producerat från träningen och analysera dem graferna.
+       1. Det här betyder att man analyserar de graferna som finns i mutag / proteins och jämför dem med de som genereras i slutet av pipen
+       2. Tittar på kopplingar med vald model och hur de speglar output i det här fallet
+3. Målet är enkelt: förstår sig k-GNN sig på grafiska strukturer bättre än 1-GNNs och kan man se det genom de producerade graferna av vår GIN
+       1. Här kan du träna flera gånger med olika vilkor olika epocher etc var bara nogran och dokumnetera.
 
-remaining gaps:
-- MUTAG 1gnn class0 GIN needs retraining (current checkpoint only 49 epochs)
-- PROTEINS 12gnn GIN needs retraining (current checkpoint only 29 epochs)
 
 
 # k-GNN Interpretation with GIN-Graph
