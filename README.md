@@ -1,3 +1,6 @@
+Notes till Max:
+1. Det verkar som att 12-modeler förstår sig mer på grafer än 1-gnn pga att den gissar fortfarande rätt men graferna är betydligt mer homogena vilket förmodligen betyder att den inte tittar på själva embeddingen utan snarare blir mer påverkad av message passing mellan noderna. 1-gnns har mycket mer sprid användning av själva atomerna vilket betyder att den tittar nog mer på vad som faktiskt är i varje nod. Jag skulle kolla här och se om man kan verifiera den här tesen
+
 att göra Max: 
 1. Förstå kopplinen mellan datasetet och output från GIN. Titta på flera grafer som genereras kanske bygg ut ett nytt dataset producerat från träningen och analysera dem graferna.
        1. Det här betyder att man analyserar de graferna som finns i mutag / proteins och jämför dem med de som genereras i slutet av pipen
