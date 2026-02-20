@@ -156,12 +156,16 @@ def cmd_gin(args):
         args.model, args.checkpoint_dir, device, dataset_name
     )
 
-    # 2. Load dataset + class stats
+    # 2. Load dataset + class stats (training data only to avoid leakage)
     print("Loading dataset...")
     dataset = load_dataset(dataset_name)
-    class_stats = get_class_statistics(dataset)
+    data_config = DataConfig.from_dataset(dataset_name)
+    _, _, train_dataset, _ = create_data_loaders(
+        dataset, seed=data_config.seed
+    )
+    class_stats = get_class_statistics(train_dataset)
     for label in [0, 1]:
-        nodes = [d.num_nodes for d in dataset if d.y.item() == label]
+        nodes = [d.num_nodes for d in train_dataset if d.y.item() == label]
         class_stats[label]['avg_nodes'] = np.mean(nodes) if nodes else 0
 
     # 3. Locate GIN checkpoint
@@ -177,8 +181,6 @@ def cmd_gin(args):
         )
 
     # 4. Reconstruct trainer and load checkpoint
-    data_config = DataConfig.from_dataset(dataset_name)
-
     # Read config from checkpoint to match hidden_dim used during training
     gin_ckpt = torch.load(gin_path, map_location=device, weights_only=False)
     gin_config = gin_ckpt.get('config', GINGraphConfig())
@@ -199,8 +201,8 @@ def cmd_gin(args):
 
     # Compute class centroid if not in checkpoint (backwards compat)
     if trainer.class_centroid is None:
-        print("  Computing class centroid from dataset...")
-        target_dataset = get_class_subset(dataset, target_class)
+        print("  Computing class centroid from training data...")
+        target_dataset = get_class_subset(train_dataset, target_class)
         trainer.compute_class_centroid(target_dataset)
     print()
 

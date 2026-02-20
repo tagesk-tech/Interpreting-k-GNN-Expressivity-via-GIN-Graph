@@ -76,10 +76,10 @@ def test_data_loading():
     
     assert len(train_data) + len(test_data) == 188
     
-    # Test class statistics
-    class_stats = get_class_statistics(dataset)
+    # Test class statistics (use training data to match production code)
+    class_stats = get_class_statistics(train_data)
     assert 0 in class_stats and 1 in class_stats
-    
+
     return f"188 graphs, 7 features, 2 classes"
 
 
@@ -422,18 +422,19 @@ def test_metrics():
 
 def test_gin_graph_trainer():
     """Test GIN-Graph trainer initialization and short training run."""
-    from data_loader import load_mutag, get_class_statistics, get_class_subset
+    from data_loader import load_mutag, create_data_loaders, get_class_statistics, get_class_subset
     from models_kgnn import get_model
     from train_gin_graph import GINGraphTrainer
     from config import GINGraphConfig, DataConfig
-    
+
     device = torch.device('cpu')
-    
-    # Load data
+
+    # Load data (use training split to match production code)
     dataset = load_mutag('./data')
-    class_stats = get_class_statistics(dataset)
+    _, _, train_data, _ = create_data_loaders(dataset, seed=42)
+    class_stats = get_class_statistics(train_data)
     for label in [0, 1]:
-        nodes = [d.num_nodes for d in dataset if d.y.item() == label]
+        nodes = [d.num_nodes for d in train_data if d.y.item() == label]
         class_stats[label]['avg_nodes'] = np.mean(nodes)
     
     # Create a simple pre-trained model (just initialized, not actually trained)
@@ -469,8 +470,8 @@ def test_gin_graph_trainer():
         class_stats=class_stats
     )
     
-    # Get target class subset
-    target_dataset = get_class_subset(dataset, 0)
+    # Get target class subset (from training data)
+    target_dataset = get_class_subset(train_data, 0)
     
     # Train for just 2 epochs (very short)
     trainer.train(target_dataset, epochs=2, verbose=False, log_interval=1)
@@ -506,11 +507,11 @@ def test_full_mini_pipeline():
     
     # Step 1: Load data
     dataset = load_mutag('./data')
-    train_loader, test_loader, _, _ = create_data_loaders(dataset, batch_size=32, seed=42)
-    
-    class_stats = get_class_statistics(dataset)
+    train_loader, test_loader, train_data, _ = create_data_loaders(dataset, batch_size=32, seed=42)
+
+    class_stats = get_class_statistics(train_data)
     for label in [0, 1]:
-        nodes = [d.num_nodes for d in dataset if d.y.item() == label]
+        nodes = [d.num_nodes for d in train_data if d.y.item() == label]
         class_stats[label]['avg_nodes'] = np.mean(nodes)
     
     # Step 2: Train k-GNN (just 1 epoch)
@@ -559,7 +560,7 @@ def test_full_mini_pipeline():
         class_stats=class_stats
     )
     
-    target_dataset = get_class_subset(dataset, 0)
+    target_dataset = get_class_subset(train_data, 0)
     trainer.train(target_dataset, epochs=1, verbose=False)
     
     # Step 4: Generate and evaluate explanations
@@ -868,6 +869,90 @@ def test_edge_cases():
 
 
 # ============================================================================
+# Test 15-18: Data Leakage Fix Verification
+# ============================================================================
+
+def test_leakage_fix_class_stats_train_only():
+    """Verify class statistics are computed from training data only."""
+    from data_loader import load_mutag, create_data_loaders, get_class_statistics
+
+    dataset = load_mutag('./data')
+    _, _, train_data, test_data = create_data_loaders(dataset, seed=42)
+
+    full_stats = get_class_statistics(dataset)
+    train_stats = get_class_statistics(train_data)
+
+    # Stats should differ (different sample sizes)
+    for label in [0, 1]:
+        assert train_stats[label]['mean_degree'] != full_stats[label]['mean_degree'] or \
+               train_stats[label]['std_degree'] != full_stats[label]['std_degree'], \
+            f"Class {label}: train stats should differ from full dataset stats"
+
+    # Verify no test graphs contribute to train stats
+    train_count = sum(1 for d in train_data if d.y.item() == 0)
+    full_count = sum(1 for d in dataset if d.y.item() == 0)
+    assert train_count < full_count, "Train subset should have fewer graphs than full dataset"
+
+    return f"train class0: {train_count}, full class0: {full_count}"
+
+
+def test_leakage_fix_centroid_train_only():
+    """Verify class centroid subset is smaller than full target class."""
+    from data_loader import load_mutag, create_data_loaders, get_class_subset
+
+    dataset = load_mutag('./data')
+    _, _, train_data, test_data = create_data_loaders(dataset, seed=42)
+
+    full_target = get_class_subset(dataset, 0)
+    train_target = get_class_subset(train_data, 0)
+
+    assert len(train_target) < len(full_target), \
+        "Train target subset should have fewer graphs than full target"
+
+    return f"train target: {len(train_target)}, full target: {len(full_target)}"
+
+
+def test_leakage_fix_split_determinism():
+    """Verify that create_data_loaders produces same split across calls."""
+    from data_loader import load_mutag, create_data_loaders
+
+    dataset1 = load_mutag('./data')
+    _, _, train1, test1 = create_data_loaders(dataset1, seed=42)
+
+    dataset2 = load_mutag('./data')
+    _, _, train2, test2 = create_data_loaders(dataset2, seed=42)
+
+    assert len(train1) == len(train2)
+    assert len(test1) == len(test2)
+
+    # Verify same graphs in same order
+    for d1, d2 in zip(train1, train2):
+        assert d1.y.item() == d2.y.item()
+        assert d1.num_nodes == d2.num_nodes
+
+    return f"deterministic: {len(train1)} train, {len(test1)} test"
+
+
+def test_leakage_fix_class_subset_on_split():
+    """Verify get_class_subset works correctly on a train split (PyG Subset)."""
+    from data_loader import load_mutag, create_data_loaders, get_class_subset
+
+    dataset = load_mutag('./data')
+    _, _, train_data, _ = create_data_loaders(dataset, seed=42)
+
+    for label in [0, 1]:
+        subset = get_class_subset(train_data, label)
+        # Every graph in subset should have the correct label
+        for data in subset:
+            assert data.y.item() == label
+        # Subset should be smaller than full class
+        full_subset = get_class_subset(dataset, label)
+        assert len(subset) < len(full_subset)
+
+    return "class subsets correct on train split"
+
+
+# ============================================================================
 # Main Test Runner
 # ============================================================================
 
@@ -893,6 +978,10 @@ def main():
         (test_kset_building, "k-Set Building"),
         (test_gradient_flow, "Gradient Flow"),
         (test_edge_cases, "Edge Cases"),
+        (test_leakage_fix_class_stats_train_only, "Leakage Fix: Class Stats"),
+        (test_leakage_fix_centroid_train_only, "Leakage Fix: Centroid"),
+        (test_leakage_fix_split_determinism, "Leakage Fix: Determinism"),
+        (test_leakage_fix_class_subset_on_split, "Leakage Fix: Subset on Split"),
     ]
     
     results = []

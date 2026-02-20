@@ -1,0 +1,120 @@
+{
+  "model": "1gnn",
+  "dataset": "mutag",
+  "target_class": 1,
+  "class_label": "Non-Mutagen",
+  "num_samples": 100,
+  "trainer_epoch": 299,
+  "trainer_steps": 600,
+  "total_generated": 100,
+  "num_valid": 82,
+  "validity_rate": 0.82,
+  "mean_validation_score": 0.7064299192967646,
+  "mean_valid_score": 0.8098374216202094,
+  "mean_prediction_prob": 1.0,
+  "mean_embedding_sim": 0.964745141863823,
+  "mean_degree_score": 0.5040045828397747,
+  "mean_granularity": 0.0,
+  "top_explanations": [
+    {
+      "rank": 1,
+      "index": 29,
+      "validation_score": 0.98871533544222,
+      "prediction_probability": 1.0,
+      "num_nodes": 25,
+      "num_edges": 28,
+      "degree_score": 0.999872086811772,
+      "granularity": 0.0
+    },
+    {
+      "rank": 2,
+      "index": 54,
+      "validation_score": 0.9884224938220173,
+      "prediction_probability": 1.0,
+      "num_nodes": 25,
+      "num_edges": 28,
+      "degree_score": 0.999872086811772,
+      "granularity": 0.0
+    },
+    {
+      "rank": 3,
+      "index": 3,
+      "validation_score": 0.9881694565317827,
+      "prediction_probability": 1.0,
+      "num_nodes": 25,
+      "num_edges": 28,
+      "degree_score": 0.999872086811772,
+      "granularity": 0.0
+    },
+    {
+      "rank": 4,
+      "index": 61,
+      "validation_score": 0.987925591560086,
+      "prediction_probability": 1.0,
+      "num_nodes": 25,
+      "num_edges": 28,
+      "degree_score": 0.999872086811772,
+      "granularity": 0.0
+    },
+    {
+      "rank": 5,
+      "index": 72,
+      "validation_score": 0.987759345334537,
+      "prediction_probability": 1.0,
+      "num_nodes": 26,
+      "num_edges": 29,
+      "degree_score": 0.9960826852341368,
+      "granularity": 0.0
+    },
+    {
+      "rank": 6,
+      "index": 88,
+      "validation_score": 0.9876840659605379,
+      "prediction_probability": 1.0,
+      "num_nodes": 26,
+      "num_edges": 29,
+      "degree_score": 0.9960826852341368,
+      "granularity": 0.0
+    },
+    {
+      "rank": 7,
+      "index": 91,
+      "validation_score": 0.9872161474792731,
+      "prediction_probability": 1.0,
+      "num_nodes": 26,
+      "num_edges": 29,
+      "degree_score": 0.9960826852341368,
+      "granularity": 0.0
+    },
+    {
+      "rank": 8,
+      "index": 79,
+      "validation_score": 0.9870689864523652,
+      "prediction_probability": 1.0,
+      "num_nodes": 26,
+      "num_edges": 29,
+      "degree_score": 0.9960826852341368,
+      "granularity": 0.0
+    },
+    {
+      "rank": 9,
+      "index": 1,
+      "validation_score": 0.9869630260908574,
+      "prediction_probability": 1.0,
+      "num_nodes": 26,
+      "num_edges": 29,
+      "degree_score": 0.9960826852341368,
+      "granularity": 0.0
+    },
+    {
+      "rank": 10,
+      "index": 84,
+      "validation_score": 0.9860529757121789,
+      "prediction_probability": 1.0,
+      "num_nodes": 26,
+      "num_edges": 29,
+      "degree_score": 0.9960826852341368,
+      "granularity": 0.0
+    }
+  ]
+}

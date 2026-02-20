@@ -21,7 +21,7 @@ import os
 import time
 from typing import Optional, Tuple, Dict, List
 
-from data_loader import load_dataset, get_class_subset, get_class_statistics, get_dataset_statistics, AVAILABLE_DATASETS
+from data_loader import load_dataset, create_data_loaders, get_class_subset, get_class_statistics, get_dataset_statistics, AVAILABLE_DATASETS
 from models_kgnn import get_model
 from gin_generator import GINGenerator, GINDiscriminator
 from model_wrapper import DenseToSparseWrapper, SimpleDenseGNN
@@ -580,20 +580,23 @@ def main():
     print(f"Device: {device}")
     print()
 
-    # Load dataset
+    # Load dataset and split to training set only (avoid data leakage)
     print(f"Loading {dataset_name.upper()} dataset...")
     dataset = load_dataset(dataset_name)
-    
-    # Get class statistics for validation
-    class_stats = get_class_statistics(dataset)
-    
+    _, _, train_dataset, _ = create_data_loaders(
+        dataset, seed=DataConfig.from_dataset(dataset_name).seed
+    )
+
+    # Get class statistics from training data only
+    class_stats = get_class_statistics(train_dataset)
+
     # Add average nodes per class
     for label in [0, 1]:
-        nodes = [d.num_nodes for d in dataset if d.y.item() == label]
+        nodes = [d.num_nodes for d in train_dataset if d.y.item() == label]
         class_stats[label]['avg_nodes'] = np.mean(nodes)
-    
-    # Filter to target class
-    target_dataset = get_class_subset(dataset, args.target_class)
+
+    # Filter to target class (training data only)
+    target_dataset = get_class_subset(train_dataset, args.target_class)
     print(f"Target class has {len(target_dataset)} graphs")
     print()
     
