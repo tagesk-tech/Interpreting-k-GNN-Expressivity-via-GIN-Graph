@@ -39,6 +39,8 @@ k-GNN/
 ├── train_kgnn.py          # k-GNN training script
 ├── train_gin_graph.py     # GIN-Graph training script
 ├── research.py            # Analysis script (no training, evaluation + figures)
+├── compare_datasets.py    # Generated vs real dataset comparison
+├── benchmark_kgnn.py      # Computational cost benchmarking
 ├── gin_handlers/          # Dataset-specific visualization handlers
 └── requirements.txt       # Dependencies
 ```
@@ -103,6 +105,23 @@ python research.py gin --model 1gnn --dataset mutag --target_class 0
 python research.py gin --model 12gnn --dataset mutag --target_class 0 --num_samples 200
 ```
 
+### 4. Compare Generated vs Real Datasets
+
+Generate large synthetic datasets from the trained GIN-Graph models and compare them against the original real data:
+
+```bash
+python compare_datasets.py --dataset mutag --num_samples 500
+python compare_datasets.py --dataset proteins --num_samples 500
+```
+
+This generates 500 graphs per class from each model's GIN-Graph checkpoints, then runs three analyses:
+
+- **Structural fidelity** — Compares degree distributions, graph sizes, and node type frequencies between generated and real graphs using KS tests
+- **Cross-model classification** — Feeds each model's generated graphs through BOTH k-GNN classifiers to test whether the graphs are model-specific or universally recognized
+- **Embedding space visualization** — t-SNE projections showing where generated graphs land relative to real data in embedding space
+
+Output goes to `results/{dataset}/comparison/` with figures, a summary `report.json`, and the generated datasets as `.npz` files.
+
 ## Theoretical Background
 
 ### k-GNNs (Morris et al., 2019)
@@ -113,6 +132,17 @@ Standard GNNs have the same expressive power as the 1-dimensional Weisfeiler-Lem
 - **2-GNN**: Message passing between pairs of nodes
 
 Higher k values capture more complex structural patterns but at increased computational cost. Our study focuses on the step from k=1 to k=2, which is the most practical increase in expressiveness.
+
+### Computational Cost
+
+The 2-GNN component adds significant computational overhead due to O(n^2) pair construction:
+
+| Operation | MUTAG 1-GNN | MUTAG 1-2-GNN | PROTEINS 1-GNN | PROTEINS 1-2-GNN |
+|-----------|-------------|---------------|----------------|------------------|
+| k-GNN forward pass | 1.9 ms | 99.5 ms (52x) | 6.8 ms | 2,214 ms (326x) |
+| GIN-Graph generation (1 graph) | 0.02 s | 1.48 s (74x) | 0.04 s | 1.43 s (36x) |
+
+On PROTEINS (50-node generation size), k-set construction alone takes ~2.2 seconds per forward pass. This makes the 1-2-GNN's GIN-Graph training roughly two orders of magnitude slower than the 1-GNN's.
 
 ### GIN-Graph (Yue et al., 2025)
 
@@ -205,14 +235,19 @@ gin_checkpoints/                      <- Stage 2: Train GIN-Graph generators
     ├── 1gnn_class0.pt
     └── training/
 
-results/                              <- Stage 3: Analysis results
+results/                              <- Stage 3 & 4: Analysis results
 ├── mutag/
 │   ├── 1gnn/report.json             # k-GNN evaluation
 │   ├── 1gnn_class0/                 # GIN-Graph analysis per class
 │   │   ├── figures/
 │   │   ├── explanations.npz
 │   │   └── report.json
-│   └── 12gnn_class1/
+│   ├── 12gnn_class1/
+│   └── comparison/                   # Generated vs real comparison
+│       ├── figures/                  # Structural, cross-classification, t-SNE
+│       ├── 1gnn_generated.npz       # 500+500 generated graphs
+│       ├── 12gnn_generated.npz
+│       └── report.json
 └── proteins/
     └── ...
 ```
@@ -231,6 +266,23 @@ The codebase also supports **1-2-3-GNN** (hierarchical triplet model) and the **
 - **1-2-3-GNN**: Adds 3-set (node triplet) message passing. Uses optimized sparse construction with `torch.no_grad()` for structure and soft iso-types for partial gradient flow. Available via `--model 123gnn`.
 - **DD dataset**: 1178 large protein graphs (up to 500 nodes, 89 features). Excluded due to memory/time constraints for GIN-Graph training. Available via `--dataset dd`.
 - **Standalone 2-GNN / 3-GNN**: Class definitions remain in `models_kgnn.py` but are removed from the factory, CLIs, and tests. These lack the 1-GNN component needed for differentiable GIN-Graph training.
+
+## Key Findings
+
+### Cross-Model Classification
+
+When we generate 500 graphs per class from each model's GIN-Graph generators and classify them with *both* k-GNN models, a clear asymmetry emerges:
+
+- **1-GNN generators produce universally recognized graphs**: On MUTAG, 89.8-100% of 1-GNN-generated graphs are also correctly classified by the 1-2-GNN. The 1-GNN captures patterns that both architectures can detect.
+- **1-2-GNN generators produce model-specific graphs**: On PROTEINS, 1-2-GNN-generated class-0 graphs are classified as class 0 by 99.8% of the 1-GNN but 0% by the 1-2-GNN itself — the 1-2-GNN's own generator fails to satisfy its classifier. The 1-2-GNN appears to learn decision boundaries in the pairwise (2-set) feature space that are invisible to standard message passing.
+
+### Structural Fidelity
+
+Both models preserve mean degree well (within 1% of real data). Graph sizes diverge more, especially for the 1-2-GNN on PROTEINS where generators overshoot (generated: ~42 nodes vs real: ~24 nodes for class 1).
+
+### The p=0.305 Problem
+
+The PROTEINS 1-2-GNN class-0 generator achieves only p=0.305 mean prediction probability — the generator struggles to satisfy the 128-dimensional embedding space of the 1-2-GNN. Only 0.9% of training iterations achieve p>0.5, compared to near-perfect performance for the 1-GNN generators. This suggests the higher-dimensional landscape is harder for the generator to optimize against.
 
 ## References
 

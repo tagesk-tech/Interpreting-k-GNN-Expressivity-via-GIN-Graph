@@ -76,23 +76,34 @@ python compare_datasets.py --dataset proteins --num_samples 500
 **DD dataset excluded**: DD is excluded from the current experiments due to its large graph sizes (up to 500 nodes) and high feature dimensionality (89 features), which make GIN-Graph training prohibitively slow and memory-intensive. The codebase retains DD support for future work.
 
 ### Current Experiment Status
-All experiments complete. All GIN-Graph models trained for 300 epochs. Results regenerated 2026-02-15.
+All experiments complete. All GIN-Graph models trained for 300 epochs. Results regenerated 2026-02-15. Comparison analysis completed 2026-02-23.
 
-| Dataset  | Model   | k-GNN | GIN c0 | GIN c1 | Analysis |
-|----------|---------|-------|--------|--------|----------|
-| MUTAG    | 1-GNN   | 89.5% | 300ep | 300ep | done |
-| MUTAG    | 1-2-GNN | 89.5% | 300ep | 300ep | done |
-| PROTEINS | 1-GNN   | 77.6% | 300ep | 300ep | done |
-| PROTEINS | 1-2-GNN | 68.6% | 300ep | 300ep | done |
+| Dataset  | Model   | k-GNN | GIN c0 | GIN c1 | Analysis | Comparison |
+|----------|---------|-------|--------|--------|----------|------------|
+| MUTAG    | 1-GNN   | 89.5% | 300ep | 300ep | done | done |
+| MUTAG    | 1-2-GNN | 89.5% | 300ep | 300ep | done | done |
+| PROTEINS | 1-GNN   | 77.6% | 300ep | 300ep | done | done |
+| PROTEINS | 1-2-GNN | 68.6% | 300ep | 300ep | done | done |
+
+### Computational Cost
+| Operation | MUTAG 1-GNN | MUTAG 1-2-GNN | PROTEINS 1-GNN | PROTEINS 1-2-GNN |
+|-----------|-------------|---------------|----------------|------------------|
+| k-GNN forward pass | 1.9 ms | 99.5 ms (52x) | 6.8 ms | 2214 ms (326x) |
+| GIN-Graph generation (1 graph) | 0.02 s | 1.48 s (74x) | 0.04 s | 1.43 s (36x) |
+
+The 2-GNN component dominates cost due to O(n^2) pair construction. On PROTEINS (50-node generation), k-set construction alone takes ~2.2s per forward pass.
 
 ## Architecture
 
-### Pipeline Flow (3-step checkpoint workflow)
+### Pipeline Flow (4-step checkpoint workflow)
 ```
-1. train_kgnn.py      → checkpoints/{dataset}_{model}.pt
-2. train_gin_graph.py  → gin_checkpoints/{dataset}/{model}_class{N}.pt
-3. research.py         → results/{dataset}/{model}_class{N}/ (figures, reports)
+1. train_kgnn.py        → checkpoints/{dataset}_{model}.pt
+2. train_gin_graph.py   → gin_checkpoints/{dataset}/{model}_class{N}.pt
+3. research.py          → results/{dataset}/{model}_class{N}/ (figures, reports)
+4. compare_datasets.py  → results/{dataset}/comparison/ (figures, report.json)
 ```
+
+Step 4 generates 500 graphs per class from each GIN-Graph checkpoint, then compares the generated datasets against the real data through structural analysis, cross-model classification, and embedding visualization.
 
 ### Core Components
 
@@ -126,6 +137,12 @@ All experiments complete. All GIN-Graph models trained for 300 epochs. Results r
 - p: Target class prediction probability
 - d: Degree score (structural validity via Gaussian kernel)
 - Class centroid is computed once per training run via `compute_class_centroid()` and saved in checkpoints
+
+**Comparison Analysis (`compare_datasets.py`)**: Generates large synthetic datasets (500 graphs/class) from trained GIN-Graph checkpoints and compares against real data:
+- **Structural fidelity**: KS tests on degree/size distributions, node type distribution comparison
+- **Cross-model classification**: Each generated dataset is classified by BOTH k-GNNs to test whether graphs generated to fool one model also fool the other
+- **Embedding space**: t-SNE visualization of real + generated embeddings to see if generated graphs cluster with real data or form separate clusters
+- Key finding: 1-GNN generators produce graphs recognized by both models (~90%+ cross-agreement on MUTAG), while 1-2-GNN generators produce graphs only recognized by their own model (~0% cross-agreement on PROTEINS), suggesting the models learn fundamentally different decision boundaries
 
 ### Dataset Handlers (`gin_handlers/`)
 
