@@ -15,5 +15,12 @@ torch-sparse
 matplotlib>=3.5.0
 networkx>=2.6.0
 
+# Optimization
+numba>=0.56.0
+scipy>=1.7.0
+
+# Analysis
+scikit-learn>=1.0.0
+
 # Utilities
 tqdm>=4.62.0

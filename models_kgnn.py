@@ -15,9 +15,17 @@ one element and where the differing elements are connected in the original graph
 
 import torch
 import torch.nn as nn
+import numpy as np
 from torch_geometric.nn import MessagePassing, global_add_pool
 from typing import Optional, Tuple, Dict
 from math import comb
+
+# Numba for accelerated 2-set edge building (optional dependency)
+try:
+    from numba import njit, prange
+    NUMBA_AVAILABLE = True
+except ImportError:
+    NUMBA_AVAILABLE = False
 
 
 # =============================================================================
@@ -236,6 +244,197 @@ def build_2set_edges(
         return torch.empty((2, 0), dtype=torch.long, device=device)
 
     return torch.stack([torch.cat(all_src), torch.cat(all_dst)])
+
+
+# =============================================================================
+# Numba-Accelerated 2-Set Edge Building
+# =============================================================================
+
+def _define_numba_kernel():
+    """Define the numba kernel at import time (deferred to avoid issues if numba missing)."""
+
+    @njit(parallel=True, cache=True)
+    def _build_2set_edges_kernel(pairs, indptr, indices, n):
+        """
+        Numba-accelerated 2-set edge building using CSR adjacency.
+
+        For each pair {u,v}, finds neighbor pairs per Morris et al.:
+          Case 1: replace u with w where adj[u,w]=1 → target {min(v,w), max(v,w)}
+          Case 2: replace v with w where adj[v,w]=1 → target {min(u,w), max(u,w)}
+
+        Uses CSR format for O(degree) neighbor iteration and flat lookup for O(1)
+        pair index queries.
+
+        Args:
+            pairs: int32[num_pairs, 2] — sorted pairs (col 0 < col 1)
+            indptr: int32[n+1] — CSR row pointers
+            indices: int32[nnz] — CSR column indices
+            n: int — number of nodes
+
+        Returns:
+            src_edges: int32 array of source pair indices
+            dst_edges: int32 array of destination pair indices
+        """
+        num_pairs = pairs.shape[0]
+
+        # Build flat lookup: canonical_index -> pair_index
+        # canonical = u * n + v for pair (u, v) with u < v
+        lookup = np.full(n * n, -1, dtype=np.int32)
+        for p in range(num_pairs):
+            u = pairs[p, 0]
+            v = pairs[p, 1]
+            lookup[u * n + v] = p
+
+        # Phase 1: count edges per pair (parallel)
+        edge_counts = np.zeros(num_pairs, dtype=np.int32)
+        for p in prange(num_pairs):
+            u = pairs[p, 0]
+            v = pairs[p, 1]
+            count = 0
+            # Case 1: neighbors of u (replace u with w → target {v, w})
+            for idx in range(indptr[u], indptr[u + 1]):
+                w = indices[idx]
+                if w == u or w == v:
+                    continue
+                tmin = min(v, w)
+                tmax = max(v, w)
+                if lookup[tmin * n + tmax] >= 0:
+                    count += 1
+            # Case 2: neighbors of v (replace v with w → target {u, w})
+            for idx in range(indptr[v], indptr[v + 1]):
+                w = indices[idx]
+                if w == u or w == v:
+                    continue
+                tmin = min(u, w)
+                tmax = max(u, w)
+                if lookup[tmin * n + tmax] >= 0:
+                    count += 1
+            edge_counts[p] = count
+
+        # Phase 2: prefix sum for offsets (sequential)
+        total_edges = 0
+        for p in range(num_pairs):
+            total_edges += edge_counts[p]
+
+        offsets = np.zeros(num_pairs + 1, dtype=np.int64)
+        for p in range(num_pairs):
+            offsets[p + 1] = offsets[p] + edge_counts[p]
+
+        # Phase 3: fill edges (parallel)
+        src_edges = np.empty(total_edges, dtype=np.int32)
+        dst_edges = np.empty(total_edges, dtype=np.int32)
+
+        for p in prange(num_pairs):
+            u = pairs[p, 0]
+            v = pairs[p, 1]
+            pos = offsets[p]
+            # Case 1
+            for idx in range(indptr[u], indptr[u + 1]):
+                w = indices[idx]
+                if w == u or w == v:
+                    continue
+                tmin = min(v, w)
+                tmax = max(v, w)
+                target = lookup[tmin * n + tmax]
+                if target >= 0:
+                    src_edges[pos] = p
+                    dst_edges[pos] = target
+                    pos += 1
+            # Case 2
+            for idx in range(indptr[v], indptr[v + 1]):
+                w = indices[idx]
+                if w == u or w == v:
+                    continue
+                tmin = min(u, w)
+                tmax = max(u, w)
+                target = lookup[tmin * n + tmax]
+                if target >= 0:
+                    src_edges[pos] = p
+                    dst_edges[pos] = target
+                    pos += 1
+
+        return src_edges, dst_edges
+
+    return _build_2set_edges_kernel
+
+
+# Lazily compiled kernel (compiled on first use, then cached by numba)
+_numba_kernel = None
+
+
+def _get_numba_kernel():
+    """Get the numba kernel, compiling on first call."""
+    global _numba_kernel
+    if _numba_kernel is None:
+        _numba_kernel = _define_numba_kernel()
+    return _numba_kernel
+
+
+def build_2set_edges_fast(
+    pairs: torch.Tensor,
+    adj: torch.Tensor,
+    device: torch.device
+) -> torch.Tensor:
+    """
+    Numba-accelerated 2-set edge building using CSR adjacency.
+
+    Falls back to the original PyTorch implementation if numba is not available.
+
+    Uses CSR format for O(degree) per-pair neighbor iteration instead of O(N)
+    dense masks. This makes processing ALL C(n,2) pairs feasible even for large
+    graphs (e.g., PROTEINS with n=620 → 192K pairs).
+
+    Args:
+        pairs: [num_pairs, 2] sorted pairs (col 0 < col 1)
+        adj: [n, n] adjacency matrix (float, 0/1)
+        device: target device for output tensor
+
+    Returns:
+        edge_index: [2, num_edges] edges between pairs
+    """
+    if not NUMBA_AVAILABLE:
+        return build_2set_edges(pairs, adj, device)
+
+    n = adj.size(0)
+    num_pairs = pairs.size(0)
+
+    if num_pairs == 0:
+        return torch.empty((2, 0), dtype=torch.long, device=device)
+
+    # Convert to numpy for numba
+    pairs_np = pairs.cpu().numpy().astype(np.int32)
+    adj_np = adj.cpu().numpy()
+
+    # Build CSR from dense adjacency
+    # (Avoids scipy dependency — manual CSR construction)
+    rows, cols = np.where(adj_np > 0.5)
+    rows = rows.astype(np.int32)
+    cols = cols.astype(np.int32)
+
+    # Sort by row for CSR format
+    sort_idx = np.argsort(rows)
+    rows = rows[sort_idx]
+    cols = cols[sort_idx]
+
+    indptr = np.zeros(n + 1, dtype=np.int32)
+    for r in rows:
+        indptr[r + 1] += 1
+    for i in range(1, n + 1):
+        indptr[i] += indptr[i - 1]
+
+    # Call the numba kernel
+    kernel = _get_numba_kernel()
+    src, dst = kernel(pairs_np, indptr, cols, n)
+
+    if len(src) == 0:
+        return torch.empty((2, 0), dtype=torch.long, device=device)
+
+    edge_index = torch.stack([
+        torch.from_numpy(src.astype(np.int64)),
+        torch.from_numpy(dst.astype(np.int64))
+    ]).to(device)
+
+    return edge_index
 
 
 def build_3set_edges(
@@ -696,15 +895,19 @@ class Hierarchical12GNN(nn.Module):
         h: torch.Tensor,
         edge_index: torch.Tensor,
         batch: torch.Tensor,
-        max_pairs: int = 5000
+        max_pairs: int = 0,
+        use_numba: bool = True
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """Build 2-sets using 1-GNN embeddings as features.
 
         Args:
             max_pairs: Maximum number of pairs per graph. If a graph has more
-                       potential pairs than this, randomly sample. Set to 0 for no limit.
+                       potential pairs than this, randomly sample. Set to 0 for no limit
+                       (default — uses all pairs with numba acceleration).
+            use_numba: Use numba-accelerated edge building (faster for all-pairs).
         """
         device = h.device
+        edge_builder = build_2set_edges_fast if (use_numba and NUMBA_AVAILABLE) else build_2set_edges
 
         all_feats, all_batch, all_src, all_dst = [], [], [], []
         offset = 0
@@ -726,7 +929,7 @@ class Hierarchical12GNN(nn.Module):
             all_feats.append(torch.cat([feat_u, feat_v, iso], dim=1))
             all_batch.append(torch.full((pairs.size(0),), g.item(), device=device, dtype=torch.long))
 
-            edges = build_2set_edges(pairs, adj, device)
+            edges = edge_builder(pairs, adj, device)
             if edges.size(1) > 0:
                 all_src.append(edges[0] + offset)
                 all_dst.append(edges[1] + offset)
@@ -849,9 +1052,11 @@ class Hierarchical123GNN(nn.Module):
         h: torch.Tensor,
         edge_index: torch.Tensor,
         batch: torch.Tensor,
-        max_pairs: int = 5000
+        max_pairs: int = 0,
+        use_numba: bool = True
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         device = h.device
+        edge_builder = build_2set_edges_fast if (use_numba and NUMBA_AVAILABLE) else build_2set_edges
         all_feats, all_batch, all_src, all_dst = [], [], [], []
         offset = 0
 
@@ -872,7 +1077,7 @@ class Hierarchical123GNN(nn.Module):
             all_feats.append(torch.cat([feat_u, feat_v, iso], dim=1))
             all_batch.append(torch.full((pairs.size(0),), g.item(), device=device, dtype=torch.long))
 
-            edges = build_2set_edges(pairs, adj, device)
+            edges = edge_builder(pairs, adj, device)
             if edges.size(1) > 0:
                 all_src.append(edges[0] + offset)
                 all_dst.append(edges[1] + offset)

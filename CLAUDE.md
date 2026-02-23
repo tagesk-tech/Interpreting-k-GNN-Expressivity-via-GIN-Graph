@@ -56,6 +56,12 @@ python research.py gin --model 1gnn --dataset mutag --target_class 0
 python research.py gin --model 12gnn --dataset mutag --target_class 0 --num_samples 200
 
 # Outputs go to results/{dataset}/{model}/ or results/{dataset}/{model}_class{N}/
+
+# Compare generated vs real datasets (no training, generates from checkpoints)
+python compare_datasets.py --dataset mutag --num_samples 500
+python compare_datasets.py --dataset proteins --num_samples 500
+
+# Outputs go to results/{dataset}/comparison/ (figures, report.json, .npz datasets)
 ```
 
 ### Supported Datasets
@@ -163,6 +169,7 @@ All hyperparameters are centralized in `config.py`:
 - `./gin_checkpoints/{dataset}/`: GIN-Graph models per dataset (e.g., `gin_checkpoints/mutag/1gnn_class0.pt`); `training/` subfolder holds intermediate checkpoints (`ckpt_*.pt`) and samples (`samples_*.npz`)
 - `./results/{dataset}/{model}/`: k-GNN evaluation from `research.py gnn` (report.json)
 - `./results/{dataset}/{model}_class{N}/`: GIN-Graph analysis from `research.py gin` (figures/, explanations.npz, report.json)
+- `./results/{dataset}/comparison/`: Generated dataset comparison from `compare_datasets.py` (figures/, report.json, {model}_generated.npz)
 
 ## Extended Model Support
 

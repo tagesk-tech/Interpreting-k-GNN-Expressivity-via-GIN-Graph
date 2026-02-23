@@ -1,0 +1,209 @@
+{
+  "dataset": "mutag",
+  "num_samples_per_class": 500,
+  "generation_time_seconds": 5.3,
+  "structural_comparison": {
+    "1gnn_class0": {
+      "degree_ks_stat": 0.11269128409846974,
+      "degree_ks_pvalue": 3.50873296374898e-07,
+      "size_ks_stat": 0.8930434782608696,
+      "size_ks_pvalue": 4.314315847433248e-39,
+      "real_mean_degree": 2.094172308711614,
+      "gen_mean_degree": 2.0710212609579735,
+      "real_mean_size": 13.91304347826087,
+      "gen_mean_size": 24.048,
+      "real_node_type_dist": {
+        "C": 0.6421875,
+        "N": 0.1296875,
+        "O": 0.1875,
+        "F": 0.009375,
+        "I": 0.0,
+        "Cl": 0.0296875,
+        "Br": 0.0015625
+      },
+      "gen_node_type_dist": {
+        "C": 0.436626746506986,
+        "N": 0.13730871590153026,
+        "O": 0.10803393213572854,
+        "F": 0.16791417165668662,
+        "I": 0.000249500998003992,
+        "Cl": 0.1492847638057219,
+        "Br": 0.000582168995342648
+      }
+    },
+    "1gnn_class1": {
+      "degree_ks_stat": 0.12341670315663777,
+      "degree_ks_pvalue": 4.482035626423879e-24,
+      "size_ks_stat": 0.8017692307692308,
+      "size_ks_pvalue": 1.6518655826323558e-57,
+      "real_mean_degree": 2.2371238748087405,
+      "gen_mean_degree": 2.227005579862971,
+      "real_mean_size": 19.83653846153846,
+      "gen_mean_size": 25.824,
+      "real_node_type_dist": {
+        "C": 0.7324285021812894,
+        "N": 0.09258361609306835,
+        "O": 0.1711100339311682,
+        "F": 0.0009694619486185168,
+        "I": 0.0004847309743092584,
+        "Cl": 0.0019389238972370335,
+        "Br": 0.0004847309743092584
+      },
+      "gen_node_type_dist": {
+        "C": 0.4199194547707559,
+        "N": 0.047397769516728624,
+        "O": 0.3630731102850062,
+        "F": 0.0,
+        "I": 0.16744114002478314,
+        "Cl": 0.0014714993804213134,
+        "Br": 0.0006970260223048327
+      }
+    },
+    "12gnn_class0": {
+      "degree_ks_stat": 0.12147013520451821,
+      "degree_ks_pvalue": 2.9076206090439817e-08,
+      "size_ks_stat": 0.8833043478260869,
+      "size_ks_pvalue": 9.326697212726222e-38,
+      "real_mean_degree": 2.094172308711614,
+      "gen_mean_degree": 2.055504172293509,
+      "real_mean_size": 13.91304347826087,
+      "gen_mean_size": 23.372,
+      "real_node_type_dist": {
+        "C": 0.6421875,
+        "N": 0.1296875,
+        "O": 0.1875,
+        "F": 0.009375,
+        "I": 0.0,
+        "Cl": 0.0296875,
+        "Br": 0.0015625
+      },
+      "gen_node_type_dist": {
+        "C": 0.543042957384905,
+        "N": 0.0018825945575902789,
+        "O": 0.10397056306691768,
+        "F": 0.34220434708197844,
+        "I": 0.0005134348793428033,
+        "Cl": 0.0,
+        "Br": 0.008386103029265788
+      }
+    },
+    "12gnn_class1": {
+      "degree_ks_stat": 0.15719284672064632,
+      "degree_ks_pvalue": 6.64694863350386e-39,
+      "size_ks_stat": 0.8257692307692308,
+      "size_ks_pvalue": 5.8780695932851845e-62,
+      "real_mean_degree": 2.2371238748087405,
+      "gen_mean_degree": 2.2182910498840935,
+      "real_mean_size": 19.83653846153846,
+      "gen_mean_size": 26.028,
+      "real_node_type_dist": {
+        "C": 0.7324285021812894,
+        "N": 0.09258361609306835,
+        "O": 0.1711100339311682,
+        "F": 0.0009694619486185168,
+        "I": 0.0004847309743092584,
+        "Cl": 0.0019389238972370335,
+        "Br": 0.0004847309743092584
+      },
+      "gen_node_type_dist": {
+        "C": 0.7859996926386967,
+        "N": 0.0731519901644383,
+        "O": 0.14038727524204703,
+        "F": 0.00038420162901490703,
+        "I": 7.68403258029814e-05,
+        "Cl": 0.0,
+        "Br": 0.0
+      }
+    }
+  },
+  "cross_classification": {
+    "1gnn_class0": {
+      "classified_by_1gnn": {
+        "class0_rate": 1.0,
+        "class1_rate": 0.0,
+        "target_agreement": 1.0,
+        "mean_target_prob": 1.0
+      },
+      "classified_by_12gnn": {
+        "class0_rate": 0.898,
+        "class1_rate": 0.102,
+        "target_agreement": 0.898,
+        "mean_target_prob": 0.8981676697731018
+      }
+    },
+    "1gnn_class1": {
+      "classified_by_1gnn": {
+        "class0_rate": 0.0,
+        "class1_rate": 1.0,
+        "target_agreement": 1.0,
+        "mean_target_prob": 0.999997615814209
+      },
+      "classified_by_12gnn": {
+        "class0_rate": 0.07,
+        "class1_rate": 0.93,
+        "target_agreement": 0.93,
+        "mean_target_prob": 0.9312586784362793
+      }
+    },
+    "12gnn_class0": {
+      "classified_by_1gnn": {
+        "class0_rate": 1.0,
+        "class1_rate": 0.0,
+        "target_agreement": 1.0,
+        "mean_target_prob": 1.0
+      },
+      "classified_by_12gnn": {
+        "class0_rate": 1.0,
+        "class1_rate": 0.0,
+        "target_agreement": 1.0,
+        "mean_target_prob": 1.0
+      }
+    },
+    "12gnn_class1": {
+      "classified_by_1gnn": {
+        "class0_rate": 0.998,
+        "class1_rate": 0.002,
+        "target_agreement": 0.002,
+        "mean_target_prob": 0.0020130674820393324
+      },
+      "classified_by_12gnn": {
+        "class0_rate": 0.004,
+        "class1_rate": 0.996,
+        "target_agreement": 0.996,
+        "mean_target_prob": 0.9959787726402283
+      }
+    }
+  },
+  "cross_agreement": {
+    "1gnn_class0": {
+      "same_model": 1.0,
+      "cross_model": 0.898
+    },
+    "1gnn_class1": {
+      "same_model": 1.0,
+      "cross_model": 0.93
+    },
+    "12gnn_class0": {
+      "same_model": 1.0,
+      "cross_model": 1.0
+    },
+    "12gnn_class1": {
+      "same_model": 0.996,
+      "cross_model": 0.002
+    }
+  },
+  "embedding_analysis": {
+    "1gnn": {
+      "embedding_dim": 64,
+      "n_real": 150,
+      "n_gen_c0": 500,
+      "n_gen_c1": 500
+    },
+    "12gnn": {
+      "embedding_dim": 128,
+      "n_real": 150,
+      "n_gen_c0": 500,
+      "n_gen_c1": 500
+    }
+  }
+}

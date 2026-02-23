@@ -109,6 +109,28 @@ def plot_explanation_grid(
     )
 
 
+def _smooth(values, window=20):
+    """Simple moving average for noisy curves."""
+    import numpy as np
+    if len(values) < window:
+        return values
+    kernel = np.ones(window) / window
+    smoothed = np.convolve(values, kernel, mode='valid')
+    # Pad front to keep same length
+    pad = len(values) - len(smoothed)
+    return np.concatenate([values[:pad], smoothed])
+
+
+def _clip_ylim(ax, data_lists, lower_pct=1, upper_pct=99):
+    """Set y-axis limits using percentiles to ignore early spikes."""
+    import numpy as np
+    all_vals = np.concatenate([np.array(d) for d in data_lists])
+    lo = np.percentile(all_vals, lower_pct)
+    hi = np.percentile(all_vals, upper_pct)
+    margin = (hi - lo) * 0.1
+    ax.set_ylim(lo - margin, hi + margin)
+
+
 def plot_training_history(
     history: Dict[str, List[float]],
     save_path: str = None
@@ -120,27 +142,39 @@ def plot_training_history(
         history: Dictionary with training metrics
         save_path: Path to save figure
     """
+    import numpy as np
+
+    # Skip first few iterations to avoid init spikes
+    skip = max(5, len(history['d_loss']) // 50)
+    iters = np.arange(len(history['d_loss']))
+
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
 
-    # D and G losses
+    # D and G losses (smoothed, clipped)
     ax = axes[0, 0]
-    ax.plot(history['d_loss'], label='Discriminator', alpha=0.7)
-    ax.plot(history['g_loss'], label='Generator', alpha=0.7)
+    d_loss = np.array(history['d_loss'])
+    g_loss = np.array(history['g_loss'])
+    ax.plot(iters[skip:], _smooth(d_loss)[skip:], label='Discriminator', alpha=0.8)
+    ax.plot(iters[skip:], _smooth(g_loss)[skip:], label='Generator', alpha=0.8)
     ax.set_xlabel('Iteration')
     ax.set_ylabel('Loss')
     ax.set_title('Training Losses')
     ax.legend()
     ax.grid(True, alpha=0.3)
+    _clip_ylim(ax, [d_loss[skip:], g_loss[skip:]])
 
-    # GAN vs GNN loss
+    # GAN vs GNN loss (smoothed, clipped)
     ax = axes[0, 1]
-    ax.plot(history['gan_loss'], label='GAN Loss', alpha=0.7)
-    ax.plot(history['gnn_loss'], label='GNN Loss', alpha=0.7)
+    gan_loss = np.array(history['gan_loss'])
+    gnn_loss = np.array(history['gnn_loss'])
+    ax.plot(iters[skip:], _smooth(gan_loss)[skip:], label='GAN Loss', alpha=0.8)
+    ax.plot(iters[skip:], _smooth(gnn_loss)[skip:], label='GNN Loss', alpha=0.8)
     ax.set_xlabel('Iteration')
     ax.set_ylabel('Loss')
     ax.set_title('Generator Loss Components')
     ax.legend()
     ax.grid(True, alpha=0.3)
+    _clip_ylim(ax, [gan_loss[skip:], gnn_loss[skip:]])
 
     # Lambda schedule
     ax = axes[1, 0]
@@ -150,20 +184,24 @@ def plot_training_history(
     ax.set_title('Dynamic Weight Schedule')
     ax.grid(True, alpha=0.3)
 
-    # Prediction probability
+    # Prediction probability (smoothed)
     ax = axes[1, 1]
-    ax.plot(history['pred_prob'], color='purple', alpha=0.7)
+    pred_prob = np.array(history['pred_prob'])
+    ax.plot(iters, pred_prob, color='purple', alpha=0.15)
+    ax.plot(iters, _smooth(pred_prob, window=30), color='purple', alpha=0.9,
+            label='Smoothed')
     ax.axhline(y=0.5, color='r', linestyle='--', alpha=0.5, label='Baseline')
     ax.set_xlabel('Iteration')
     ax.set_ylabel('Prediction Probability')
     ax.set_title('Target Class Prediction Probability')
+    ax.set_ylim(-0.05, 1.05)
     ax.legend()
     ax.grid(True, alpha=0.3)
 
     plt.tight_layout()
 
     if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.savefig(save_path, dpi=200, bbox_inches='tight')
         print(f"Training history saved to: {save_path}")
 
     return fig
