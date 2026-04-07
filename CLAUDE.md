@@ -11,6 +11,17 @@ Research project investigating whether a hierarchical 1-2-GNN provides better st
 ### Embedding similarity (s) metric — fixed in c4d9e91
 The validation score `v = (s * p * d)^(1/3)` originally used `s = p` (prediction probability as a proxy for embedding similarity), collapsing the metric to `(p^2 * d)^(1/3)`. Fixed by computing actual cosine similarity between generated graph embeddings (via `DenseToSparseWrapper.get_embedding()`) and a precomputed class centroid (mean embedding of real target-class graphs via the sparse k-GNN). The centroid is saved in GIN-Graph checkpoints. All results have been regenerated with the corrected metric.
 
+### GIN-Graph training improvements — 2026-03-07
+Three improvements to the GIN-Graph training pipeline, backward-compatible with existing checkpoints:
+
+1. **Graph size regularization** (`size_lambda=10.0` in `GINGraphConfig`): Differentiable penalty on active node count deviation from per-class mean. Uses sigmoid approximation `Σ σ(10·(deg_i - 0.5))` to softly count active nodes. Fixed PROTEINS class 1 inflation from ~42→24 nodes (target 23.7).
+
+2. **Node type distribution regularization** (`node_type_lambda=1.0`): L2 penalty `Σ(gen_freq_i - real_freq_i)²` on generated vs real node type frequencies. Computed from training split real data before training starts.
+
+3. **Best checkpoint selection**: Training now tracks validation score at checkpoint intervals (every 25 epochs) and saves the best model by validation score, rather than always using the last epoch. `best_validation_score` and `best_epoch` are saved in checkpoints.
+
+All changes use optional config fields with defaults and `.get()` fallbacks in checkpoint loading — old checkpoints load without modification.
+
 ## Commands
 
 ### Installation
@@ -76,14 +87,14 @@ python compare_datasets.py --dataset proteins --num_samples 500
 **DD dataset excluded**: DD is excluded from the current experiments due to its large graph sizes (up to 500 nodes) and high feature dimensionality (89 features), which make GIN-Graph training prohibitively slow and memory-intensive. The codebase retains DD support for future work.
 
 ### Current Experiment Status
-All experiments complete. All GIN-Graph models trained for 300 epochs. Results regenerated 2026-02-15. Comparison analysis completed 2026-02-23.
+All experiments complete. All GIN-Graph models retrained for 300 epochs with size/node-type regularization and best checkpoint selection. Results regenerated 2026-03-07.
 
 | Dataset  | Model   | k-GNN | GIN c0 | GIN c1 | Analysis | Comparison |
 |----------|---------|-------|--------|--------|----------|------------|
 | MUTAG    | 1-GNN   | 89.5% | 300ep | 300ep | done | done |
 | MUTAG    | 1-2-GNN | 89.5% | 300ep | 300ep | done | done |
-| PROTEINS | 1-GNN   | 77.6% | 300ep | 300ep | done | done |
-| PROTEINS | 1-2-GNN | 68.6% | 300ep | 300ep | done | done |
+| PROTEINS | 1-GNN   | 79.8% | 300ep | 300ep | done | done |
+| PROTEINS | 1-2-GNN | 78.9% | 300ep | 300ep | done | done |
 
 ### Computational Cost
 | Operation | MUTAG 1-GNN | MUTAG 1-2-GNN | PROTEINS 1-GNN | PROTEINS 1-2-GNN |
@@ -142,7 +153,10 @@ Step 4 generates 500 graphs per class from each GIN-Graph checkpoint, then compa
 - **Structural fidelity**: KS tests on degree/size distributions, node type distribution comparison
 - **Cross-model classification**: Each generated dataset is classified by BOTH k-GNNs to test whether graphs generated to fool one model also fool the other
 - **Embedding space**: t-SNE visualization of real + generated embeddings to see if generated graphs cluster with real data or form separate clusters
-- Key finding: 1-GNN generators produce graphs recognized by both models (~90%+ cross-agreement on MUTAG), while 1-2-GNN generators produce graphs only recognized by their own model (~0% cross-agreement on PROTEINS), suggesting the models learn fundamentally different decision boundaries
+- Key findings (2026-03-07 results):
+  - MUTAG: 1-GNN graphs transfer well (90-92% cross), 1-2-GNN class 0 transfers (100% cross) but class 1 does not (12.4% cross)
+  - PROTEINS: 1-GNN class 0 rejected by 1-2-GNN (9.4% cross), 1-2-GNN graphs accepted by both (98-100% cross)
+  - The 1-2-GNN learns decision boundaries in pairwise feature space that are invisible to standard message passing, leading to asymmetric cross-model agreement
 
 ### Dataset Handlers (`gin_handlers/`)
 
@@ -172,7 +186,7 @@ handler.class_names  # {0: 'Non-Enzyme', 1: 'Enzyme'}
 All hyperparameters are centralized in `config.py`:
 - `DataConfig`: Dataset settings with `from_dataset()` factory for dataset-specific defaults
 - `KGNNConfig`: Hidden dim, layers, dropout, learning rate
-- `GINGraphConfig`: Latent dim, WGAN-GP settings, dynamic weighting params
+- `GINGraphConfig`: Latent dim, WGAN-GP settings, dynamic weighting params, `size_lambda`, `node_type_lambda`
 - `get_class_name(class_idx, dataset)`: Get class label from handler
 
 ### Output Directories (3-stage pipeline)

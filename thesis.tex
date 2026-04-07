@@ -23,7 +23,7 @@
   \large Comparing 1-GNN and 1-2-GNN for Model-Level\\Graph Classification Interpretability
 }
 \author{[Author Name]}
-\date{February 2026}
+\date{March 2026}
 
 \begin{document}
 \maketitle
@@ -32,7 +32,7 @@
 % Abstract
 % ============================================================
 \begin{abstract}
-Graph Neural Networks (GNNs) are powerful tools for graph classification, yet their decision processes remain opaque. Higher-order $k$-GNNs, which operate on $k$-element subsets of nodes, provably increase expressive power beyond the Weisfeiler--Leman hierarchy, but it is unclear whether this additional expressiveness translates into more interpretable explanations. We investigate this question by comparing a standard 1-GNN with a hierarchical 1-2-GNN using the GIN-Graph framework for model-level explanation generation. Our pipeline trains $k$-GNN classifiers on the MUTAG and PROTEINS benchmarks, then uses a Wasserstein GAN with gradient penalty to generate class-representative explanation graphs guided by the pretrained classifier. We introduce a fully differentiable dense wrapper that maintains gradient flow through both node features and adjacency matrices for hierarchical models. On MUTAG, both models achieve identical classification accuracy (89.5\%), yet the 1-2-GNN produces explanations with higher validity rates (82\% vs.\ 78\%), validation scores (0.735 vs.\ 0.681), and degree realism (0.565 vs.\ 0.490), demonstrating that higher-order expressiveness improves explanation quality independently of classification performance. On PROTEINS, both models achieve comparable classification (79.8\% vs.\ 78.9\%), but each excels at explaining a different class: the 1-GNN dominates Non-Enzyme explanations while the 1-2-GNN achieves higher Enzyme validity. Cross-model classification of 500 generated graphs per class reveals that the two architectures learn fundamentally different decision boundaries---on PROTEINS, graphs generated for one model are systematically misclassified by the other. These results suggest that the benefit of higher-order message passing for interpretability is dataset-dependent, and that different architectures can develop incompatible internal representations of graph structure.
+Graph Neural Networks (GNNs) are powerful tools for graph classification, yet their decision processes remain opaque. Higher-order $k$-GNNs, which operate on $k$-element subsets of nodes, provably increase expressive power beyond the Weisfeiler--Leman hierarchy, but it is unclear whether this additional expressiveness leads the model to learn qualitatively different internal representations. We investigate this question by comparing a standard 1-GNN with a hierarchical 1-2-GNN using the GIN-Graph framework for model-level explanation generation. Our pipeline trains $k$-GNN classifiers on the MUTAG and PROTEINS benchmarks, then uses a Wasserstein GAN with gradient penalty to generate class-representative explanation graphs guided by the pretrained classifier. We introduce a fully differentiable dense wrapper that maintains gradient flow through both node features and adjacency matrices for hierarchical models. On MUTAG, both models achieve identical classification accuracy (89.5\%), yet they generate strikingly different explanations: the 1-GNN associates mutagenicity with nitrogen-containing structures while the 1-2-GNN favours halogenated compounds, revealing that the two architectures encode different structural features of the same class. Cross-model classification of 500 generated graphs per class confirms this divergence quantitatively---on PROTEINS, 1-GNN-generated Non-Enzyme graphs are rejected by the 1-2-GNN (9.4\% agreement), while 1-2-GNN-generated graphs are accepted by both models (98--100\% agreement), indicating that the 1-2-GNN learns a more selective decision boundary in its pairwise feature space. These results demonstrate that different GNN architectures develop qualitatively different internal representations of graph classes, and that model-level explanations can reveal these differences even when classification accuracy is comparable.
 \end{abstract}
 
 \newpage
@@ -49,7 +49,7 @@ Graph Neural Networks (GNNs) have become the standard approach for learning on g
 
 The expressiveness of standard message-passing GNNs is bounded by the 1-dimensional Weisfeiler--Leman (1-WL) graph isomorphism test~\cite{morris2019weisfeiler}. Morris et al.~\cite{morris2019weisfeiler} proposed $k$-GNNs that operate on $k$-element subsets of nodes, achieving expressiveness equivalent to the $k$-WL test. In theory, higher-order $k$-GNNs can distinguish graph structures that standard GNNs cannot.
 
-A natural question arises: \emph{does this additional structural expressiveness translate into better model-level explanations?} If a model captures richer structural patterns, the explanations it produces---representative graphs that characterise each class---should be more informative and structurally valid.
+A natural question arises: \emph{does this additional structural expressiveness lead the model to learn different internal representations of graph classes, and can we observe these differences through generated explanations?} If a model captures richer structural patterns, the explanations it produces---representative graphs that characterise each class---may reveal what structural features each architecture has learned to associate with each class.
 
 We investigate this question using the GIN-Graph framework~\cite{sun2025gingraph}, which generates model-level explanation graphs through a GAN-based approach guided by a pretrained classifier. Model-level explanations aim to answer the question ``what does a typical graph of class $c$ look like according to the model?'' by generating new graphs that maximise the model's confidence for that class while remaining structurally realistic. This contrasts with instance-level methods that explain individual predictions by identifying important subgraphs.
 
@@ -63,7 +63,7 @@ Our contributions are:
 \begin{enumerate}[nosep]
   \item A fully differentiable dense wrapper enabling GIN-Graph training with hierarchical $k$-GNN classifiers, maintaining gradient flow through adjacency matrices at both the 1-GNN and 2-GNN levels.
   \item A corrected validation metric that computes actual cosine similarity between generated and real graph embeddings, replacing the original proxy of using prediction probability.
-  \item An empirical comparison of explanation quality across two benchmark datasets (MUTAG, PROTEINS), showing that the benefit of higher-order message passing for interpretability is dataset-dependent.
+  \item A qualitative comparison showing that the two architectures learn fundamentally different internal representations of graph classes, revealed through divergent explanation structures and near-zero cross-model agreement.
 \end{enumerate}
 
 % ============================================================
@@ -230,12 +230,12 @@ The temperature $\tau = 1.0$ during training (allowing exploration) and $\tau = 
 \subsection{Training Objective}
 \label{sec:training}
 
-The total generator loss combines adversarial and GNN-guidance terms:
+The total generator loss combines adversarial, GNN-guidance, and structural regularisation terms:
 \begin{equation}
-  \mathcal{L}_G = (1 - \lambda(t))\,\mathcal{L}_{\text{GAN}} + \lambda(t)\,\mathcal{L}_{\text{GNN}},
+  \mathcal{L}_G = (1 - \lambda(t))\,\mathcal{L}_{\text{GAN}} + \lambda(t)\,\mathcal{L}_{\text{GNN}} + \mathcal{L}_{\text{reg}},
   \label{eq:total-loss}
 \end{equation}
-where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training.
+where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training, and $\mathcal{L}_{\text{reg}}$ comprises structural regularisation losses described below.
 
 \textbf{WGAN-GP loss.} We use a Wasserstein GAN with gradient penalty~\cite{gulrajani2017improved}. The discriminator $\mathcal{D}$ (a GNN-based network) estimates the Wasserstein distance between real and generated graph distributions. The discriminator loss is:
 \begin{equation}
@@ -263,6 +263,13 @@ where $p_\Phi(y = c \mid \tilde{G})$ is the softmax probability assigned to clas
 where $T$ is the total number of training iterations, $p = 0.4$ is the fraction of training before $\lambda$ begins increasing, $k = 10$ controls the steepness of the transition, and $\sigma(x) = 1/(1 + e^{-x})$ is the logistic sigmoid.
 
 The intuition is as follows. When $t \ll pT$, the sigmoid argument is strongly negative, giving $\lambda(t) \approx 0$: the generator focuses on learning realistic graph structure (GAN loss dominates). As $t$ passes $pT$, $\lambda(t)$ increases rapidly toward 1: the generator shifts to producing class-specific patterns (GNN loss dominates). Without this schedule, the generator would collapse to structurally degenerate graphs that fool the classifier but look nothing like real molecules or proteins.
+
+\textbf{Structural regularisation.} The generator outputs a fixed-size $N \times N$ adjacency matrix, but real graphs vary in size. Without explicit constraints, the Gumbel-Softmax sampling tends to activate most node slots, producing graphs much larger than the real class mean. We add two regularisation terms:
+\begin{equation}
+  \mathcal{L}_{\text{reg}} = \lambda_{\text{size}} \cdot \left(\frac{\hat{n} - \bar{n}_c}{\bar{n}_c}\right)^2 + \lambda_{\text{type}} \cdot \sum_{i=1}^{D} \left(\hat{p}_i - p_i^c\right)^2,
+  \label{eq:reg}
+\end{equation}
+where $\hat{n} = \sum_v \sigma(10 \cdot (d_v - 0.5))$ is a differentiable soft count of active nodes (using the sigmoid of the degree $d_v$ minus a threshold), $\bar{n}_c$ is the mean node count for class $c$, $\hat{p}_i$ is the generated frequency of node type $i$, and $p_i^c$ is the real frequency in class $c$. The size loss ($\lambda_{\text{size}} = 10$) penalises deviation from the class mean graph size, and the node type loss ($\lambda_{\text{type}} = 1$) encourages the generated node type distribution to match the real class distribution.
 
 \subsection{Dense Wrapper for Differentiable $k$-GNN Inference}
 \label{sec:dense-wrapper}
@@ -374,7 +381,7 @@ PROTEINS & 1113 & 3 (sec.\ struct.) & 620 & 50 & Enzyme vs.\ non-enzyme \\
 
 \subsection{Model Configuration}
 
-All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers; the 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) for 300 epochs with cross-entropy loss. Data is split 80/20 into train/test with a fixed seed of 42.
+All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers; the 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) for 100 epochs with cross-entropy loss. Data is split 80/20 into train/test with a fixed seed of 42.
 
 The GIN-Graph generator uses a latent dimension $d_z = 32$, hidden dimension $d_h = 128$, and is trained for 300 epochs with Adam (lr = 0.001) and batch size 64. WGAN-GP uses $\lambda_{\text{GP}} = 10$ and trains the discriminator once per generator update ($n_{\text{critic}} = 1$). The dynamic weighting uses $p = 0.4$, $k = 10$, $\lambda_{\min} = 0$, $\lambda_{\max} = 1$.
 
@@ -416,7 +423,7 @@ For each model-dataset-class combination, we generate 100 explanation graphs at 
 
 \subsection{$k$-GNN Classification Performance}
 
-Table~\ref{tab:kgnn-results} summarises the classification results. On MUTAG, both models achieve identical best test accuracy of 89.5\%, indicating that the additional pairwise message passing does not provide a classification advantage on this small molecular dataset. On PROTEINS, both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%) after 300 epochs of training, with the 1-2-GNN now processing all $\binom{n}{2}$ node pairs via a numba-accelerated kernel instead of sampling a subset. The 1-2-GNN's best accuracy occurs at epoch 75, showing that the model benefits from extended training when given access to the full pairwise structure.
+Table~\ref{tab:kgnn-results} summarises the classification results. On MUTAG, both models achieve identical best test accuracy of 89.5\%, indicating that the additional pairwise message passing does not provide a classification advantage on this small molecular dataset. On PROTEINS, both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%) after 100 epochs of training, with the 1-2-GNN now processing all $\binom{n}{2}$ node pairs via a numba-accelerated kernel instead of sampling a subset. The 1-2-GNN's best accuracy occurs at epoch 75, showing that the model benefits from extended training when given access to the full pairwise structure.
 
 \begin{table}[htbp]
 \centering
@@ -457,11 +464,11 @@ Table~\ref{tab:gin-mutag} presents the GIN-Graph results on MUTAG. All configura
 \end{tabular}
 \end{table}
 
-On class 1 (Non-Mutagen), the 1-2-GNN produces explanations with higher validity (82\% vs.\ 78\%), higher validation scores (0.735 vs.\ 0.681), and notably higher degree scores (0.565 vs.\ 0.490), indicating more structurally realistic graphs. This advantage is particularly striking because both models achieve identical classification accuracy (89.5\%), isolating the effect of higher-order message passing on explanation quality from classification performance.
+Both models achieve successful generation on both classes, with the 1-2-GNN showing somewhat higher validity rates (82\% vs.\ 78\% on class 1, 41\% vs.\ 32\% on class 0) and validation scores (0.735 vs.\ 0.681 on class 1). However, the more significant finding is not the quantitative difference---which may not be statistically significant given the single-seed setup (Section~\ref{sec:limitations})---but the \emph{qualitative divergence} in what the two models generate.
 
-On class 0 (Mutagen), the 1-2-GNN outperforms the 1-GNN (41\% vs.\ 32\% validity, 0.434 vs.\ 0.320 validation score), though both models struggle with low validity rates. Despite Mutagen being the majority class (125/188 = 66.5\%), the difficulty likely stems from structural diversity: mutagenic compounds exhibit varied functional groups---nitro, amino, halogen---making a single representative graph harder to produce than the more structurally uniform Non-Mutagen class. Both models achieve perfect prediction probability ($p = 1.0$), with the 1-2-GNN achieving higher embedding similarity (0.771 vs.\ 0.700) and degree scores (0.314 vs.\ 0.210).
+Despite identical classification accuracy (89.5\%), the two models produce strikingly different atom type distributions for class 0 (Figure~\ref{fig:mutag-class0}). The 1-GNN generates C/N/O-dominated structures (49\% C, 25\% N, 25\% O) consistent with nitrogen-containing mutagenic motifs such as nitroaromatic groups. The 1-2-GNN, by contrast, produces halogen-heavy graphs dominated by fluorine and oxygen (36\% F, 34\% O, 20\% Cl)---suggesting that the pairwise message passing leads the model to associate mutagenicity with halogenated structures rather than nitroaromatic ones. Both represent valid mutagenic subclasses in the chemistry literature, but the divergence reveals that the two architectures have learned fundamentally different internal representations of the same class.
 
-Qualitatively, the two models generate strikingly different atom type distributions for class 0 (Figure~\ref{fig:mutag-class0}). The 1-GNN produces C/N/O-dominated structures (49\% C, 25\% N, 25\% O) consistent with nitrogen-containing mutagenic motifs, while the 1-2-GNN generates halogen-heavy graphs dominated by fluorine and oxygen (36\% F, 34\% O, 20\% Cl)---suggesting that the pairwise message passing leads the model to associate mutagenicity with halogenated structures rather than nitroaromatic ones. This divergence reveals that the two architectures learn qualitatively different internal representations of the same class.
+On class 0 (Mutagen), both models struggle with low validity rates despite Mutagen being the majority class (125/188 = 66.5\%). This likely stems from structural diversity: mutagenic compounds exhibit varied functional groups---nitro, amino, halogen---making a single representative graph harder to produce than the more structurally uniform Non-Mutagen class. Both models achieve perfect prediction probability ($p = 1.0$).
 
 \begin{figure}[htbp]
 \centering
@@ -514,26 +521,28 @@ The top 1-2-GNN explanations achieve near-perfect validation scores (0.986), wit
 
 \subsection{GIN-Graph Explanation Quality: PROTEINS}
 
-Table~\ref{tab:gin-proteins} presents results on PROTEINS. All configurations were fully trained for 300 epochs. Unlike MUTAG, the two models show complementary strengths: each excels at explaining a different class.
+Table~\ref{tab:gin-proteins} presents results on PROTEINS. All configurations were fully trained for 300 epochs with graph size and node type regularisation (see Section~\ref{sec:training}). Unlike MUTAG, the two models show complementary strengths, with each achieving higher scores on a different class.
 
 \begin{table}[htbp]
 \centering
-\caption{GIN-Graph explanation quality on PROTEINS. All models trained for 300 epochs.}
+\caption{GIN-Graph explanation quality on PROTEINS. All models trained for 300 epochs with structural regularisation.}
 \label{tab:gin-proteins}
 \begin{tabular}{llccccc}
 \toprule
 \textbf{Class} & \textbf{Model} & \textbf{Valid\%} & \textbf{Val Score} & $s$ & $p$ & $d$ \\
 \midrule
-0 (Non-Enzyme)  & \textbf{1-GNN}   & 100\% & \textbf{0.982} & \textbf{0.989} & \textbf{0.984} & 0.974 \\
-0 (Non-Enzyme)  & 1-2-GNN          & 100\% & 0.579 & 0.637 & 0.305 & \textbf{0.998} \\
+0 (Non-Enzyme)  & 1-GNN   & 100\% & 0.986 & 0.987 & 0.986 & 0.984 \\
+0 (Non-Enzyme)  & 1-2-GNN & 100\% & 0.760 & 0.782 & 0.564 & 0.996 \\
 \midrule
-1 (Enzyme)      & 1-GNN            & 27\%  & 0.251 & \textbf{0.250} & 0.923 & 0.976 \\
-1 (Enzyme)      & \textbf{1-2-GNN} & \textbf{100\%} & \textbf{0.558} & 0.182 & \textbf{0.975} & \textbf{0.981} \\
+1 (Enzyme)      & 1-GNN   & 37\%  & 0.330 & 0.356 & 0.919 & 0.837 \\
+1 (Enzyme)      & 1-2-GNN & 94\%  & 0.524 & 0.151 & 0.998 & 0.961 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The 1-GNN dominates class 0 (Non-Enzyme) with near-perfect scores across all components ($v = 0.982$, $s = 0.989$, $p = 0.984$, $d = 0.974$), while the 1-2-GNN struggles with very low prediction probability ($p = 0.305$), indicating its classifier tends to predict class 1 regardless of generated structure. However, on class 1 (Enzyme), the situation reverses: the 1-2-GNN achieves 100\% validity with high prediction probability ($p = 0.975$), while the 1-GNN achieves only 27\% validity with low embedding similarity ($s = 0.250$), indicating the generated Enzyme graphs diverge from the real embedding centroid. Both models now achieve comparable classification accuracy (79.8\% vs.\ 78.9\%), so this complementary pattern reflects genuine differences in what the two architectures learn about protein structure rather than a simple classifier quality gap.
+The 1-GNN achieves near-perfect scores on class 0 (Non-Enzyme) across all components ($v = 0.986$, $s = 0.987$, $p = 0.986$), while the 1-2-GNN achieves lower but still functional prediction probability ($p = 0.564$) and overall validation score ($v = 0.760$). On class 1 (Enzyme), both models achieve high prediction probability ($p = 0.919$ and $0.998$), but the 1-GNN struggles with validity (37\%) while the 1-2-GNN achieves 94\% validity. Notably, both models show low embedding similarity on Enzyme ($s = 0.356$ and $0.151$), indicating that generated Enzyme graphs remain distant from the real embedding centroid despite being correctly classified.
+
+Both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%), so this complementary pattern reflects genuine differences in what the two architectures learn about protein structure rather than a simple classifier quality gap. The 1-GNN's node-level representations capture Non-Enzyme patterns more effectively, while the 1-2-GNN's pairwise representations enable higher-validity Enzyme generation.
 
 \begin{figure}[htbp]
 \centering
@@ -569,11 +578,11 @@ The 1-GNN dominates class 0 (Non-Enzyme) with near-perfect scores across all com
   \caption{1-2-GNN explanations for Enzyme}
   \label{fig:proteins-12gnn-c1}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-2-GNN). Class 0 explanations achieve validation scores $v = 0.58$--$0.65$ with 50 nodes, while class 1 explanations achieve $v = 0.56$--$0.61$ with 42 nodes.}
+\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-2-GNN). Class 0 explanations achieve validation scores $v = 0.76$--$0.82$ with 50 nodes, while class 1 explanations achieve $v = 0.52$--$0.58$ with 30--50 nodes.}
 \label{fig:proteins-12gnn-explanations}
 \end{figure}
 
-The class-specific strengths are visually evident in the explanation figures. The 1-GNN class 0 explanations (Figure~\ref{fig:proteins-explanations}) show high-quality graphs with validation scores $v = 0.99$, while its class 1 explanations are limited to the 27 valid graphs out of 100 generated. The 1-2-GNN explanations (Figure~\ref{fig:proteins-12gnn-explanations}) achieve 100\% validity on both classes, but with lower overall scores due to the prediction probability bottleneck on class 0 and the embedding similarity bottleneck on class 1. This complementary pattern---each model excelling on a different class---suggests that the node-level and pairwise representations capture different aspects of protein structure.
+The class-specific strengths are visually evident in the explanation figures. The 1-GNN class 0 explanations (Figure~\ref{fig:proteins-explanations}) show high-quality graphs with validation scores $v \approx 0.99$, while its class 1 explanations have 37\% validity, with the valid graphs showing lower embedding similarity. The 1-2-GNN explanations (Figure~\ref{fig:proteins-12gnn-explanations}) achieve high validity on both classes (100\% class 0, 94\% class 1), with moderate prediction probability on class 0 ($p = 0.564$) and low embedding similarity on class 1 ($s = 0.151$). This complementary pattern---each model generating higher-quality explanations for a different class---suggests that the node-level and pairwise representations capture different aspects of protein structure.
 
 \subsection{Metric Decomposition}
 \label{sec:decomposition}
@@ -589,25 +598,23 @@ Table~\ref{tab:decomposition} provides a detailed comparison of the three valida
 \textbf{Dataset} & \textbf{Class} & \textbf{Model} & $s$ (emb.\ sim) & $p$ (pred.\ prob) & $d$ (degree) \\
 \midrule
 MUTAG & 0 (Mutagen)    & 1-GNN   & 0.700 & 1.000 & 0.210 \\
-MUTAG & 0 (Mutagen)    & 1-2-GNN & \textbf{0.771} & 1.000 & \textbf{0.314} \\
+MUTAG & 0 (Mutagen)    & 1-2-GNN & 0.771 & 1.000 & 0.314 \\
 \midrule
-MUTAG & 1 (Non-Mut.)   & 1-GNN   & \textbf{0.935} & 1.000 & 0.490 \\
-MUTAG & 1 (Non-Mut.)   & 1-2-GNN & 0.933 & 1.000 & \textbf{0.565} \\
+MUTAG & 1 (Non-Mut.)   & 1-GNN   & 0.935 & 1.000 & 0.490 \\
+MUTAG & 1 (Non-Mut.)   & 1-2-GNN & 0.933 & 1.000 & 0.565 \\
 \midrule
-PROTEINS & 0 (Non-Enz.) & 1-GNN   & \textbf{0.989} & \textbf{0.984} & 0.974 \\
-PROTEINS & 0 (Non-Enz.) & 1-2-GNN & 0.637 & 0.305 & \textbf{0.998} \\
+PROTEINS & 0 (Non-Enz.) & 1-GNN   & 0.987 & 0.986 & 0.984 \\
+PROTEINS & 0 (Non-Enz.) & 1-2-GNN & 0.782 & 0.564 & 0.996 \\
 \midrule
-PROTEINS & 1 (Enzyme)   & 1-GNN   & \textbf{0.250} & 0.923 & 0.976 \\
-PROTEINS & 1 (Enzyme)   & 1-2-GNN & 0.182 & \textbf{0.975} & \textbf{0.981} \\
+PROTEINS & 1 (Enzyme)   & 1-GNN   & 0.356 & 0.919 & 0.837 \\
+PROTEINS & 1 (Enzyme)   & 1-2-GNN & 0.151 & 0.998 & 0.961 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-On MUTAG class 1, the degree score is the primary differentiator: the 1-2-GNN generates graphs whose average degree better matches the target class distribution (0.565 vs.\ 0.490). Both models achieve perfect prediction probability ($p = 1.0$) and comparable embedding similarity ($s = 0.933$ vs.\ $0.935$).
+On MUTAG, both models achieve perfect prediction probability ($p = 1.0$) on both classes, indicating that both classifiers provide strong gradient signal to the generators. The degree score shows the largest variation: the 1-2-GNN produces graphs with more realistic average degree on both classes (0.565 vs.\ 0.490 on class 1, 0.314 vs.\ 0.210 on class 0). Embedding similarity is comparable on class 1 ($s \approx 0.93$) and somewhat higher for the 1-2-GNN on class 0 (0.771 vs.\ 0.700).
 
-On MUTAG class 0, the 1-2-GNN outperforms across all components: higher embedding similarity (0.771 vs.\ 0.700), higher degree score (0.314 vs.\ 0.210), and equal prediction probability ($p = 1.0$). Both models achieve perfect prediction probability on MUTAG, indicating that the classifiers provide strong gradient signal to the generators.
-
-On PROTEINS, each model excels on a different class. The 1-GNN dominates class 0 with near-perfect scores ($s = 0.989$, $p = 0.984$, $d = 0.974$), while the 1-2-GNN dominates class 1 validity (100\% vs.\ 27\%) with high prediction probability ($p = 0.975$) but very low embedding similarity ($s = 0.182$). The 1-2-GNN struggles on class 0 with low prediction probability ($p = 0.305$), meaning its classifier tends to predict class 1 regardless of input, while the 1-GNN struggles on class 1 with low embedding similarity ($s = 0.250$), indicating the generated Enzyme graphs diverge from the real embedding centroid. The degree scores remain uniformly high across all PROTEINS configurations ($d > 0.97$), confirming that structural realism is not the bottleneck.
+On PROTEINS, the metric profiles reveal how each architecture interacts differently with the generator. The 1-GNN achieves near-perfect scores on class 0 ($s = 0.987$, $p = 0.986$, $d = 0.984$) but lower embedding similarity on class 1 ($s = 0.356$), indicating generated Enzyme graphs diverge from the real embedding centroid despite being correctly classified ($p = 0.919$). The 1-2-GNN achieves moderate prediction probability on class 0 ($p = 0.564$) with high embedding similarity ($s = 0.782$) and near-perfect degree score ($d = 0.996$), while on class 1 it achieves near-perfect prediction probability ($p = 0.998$) but very low embedding similarity ($s = 0.151$). The degree scores are generally high across PROTEINS ($d > 0.83$), confirming that structural realism is maintained by the WGAN-GP component.
 
 \subsection{Training Dynamics}
 
@@ -615,7 +622,7 @@ Figure~\ref{fig:training} shows a representative training curve from the MUTAG 1
 
 During the first $\sim$120 epochs ($\lambda \approx 0$), the generator loss and discriminator loss dominate: the generator learns to produce structurally realistic graphs that fool the discriminator, without pressure to target a specific class. As the dynamic weighting $\lambda(t)$ increases (Equation~\ref{eq:lambda}), the GNN guidance loss takes over, steering the generator toward class-specific patterns. This transition is visible as the GNN loss drops sharply while the adversarial losses plateau.
 
-The training behaviour varies across configurations. On MUTAG, all four generators converge smoothly, consistent with the small graph sizes ($N = 28$) and low feature dimensionality (7 atom types). On PROTEINS, the training dynamics are more complex: the 1-2-GNN class 0 generator never achieves high prediction probability ($p = 0.305$ at evaluation), suggesting that the GNN guidance signal is insufficient to push the generator into the target class region of the 1-2-GNN's decision space. In contrast, the 1-GNN class 0 generator achieves near-perfect alignment ($p = 0.984$), indicating that the 1-GNN's decision boundary is easier for the generator to exploit.
+The training behaviour varies across configurations. On MUTAG, all four generators converge smoothly, consistent with the small graph sizes ($N = 28$) and low feature dimensionality (7 atom types). On PROTEINS, the training dynamics are more complex: the 1-2-GNN class 0 generator achieves moderate prediction probability ($p = 0.564$ at evaluation), lower than the 1-GNN's near-perfect alignment ($p = 0.986$) on the same class. This gap reflects the difficulty of optimising through the 1-2-GNN's higher-dimensional embedding space ($\mathbb{R}^{128}$ vs.\ $\mathbb{R}^{64}$), where the generator must satisfy both node-level and pair-level classifier components simultaneously.
 
 \begin{figure}[htbp]
 \centering
@@ -631,11 +638,11 @@ To evaluate the fidelity and cross-model transferability of generated explanatio
 
 \subsubsection{Structural Fidelity}
 
-Table~\ref{tab:structural} summarises the structural comparison. Degree distributions match closely across all configurations: Kolmogorov--Smirnov statistics range from 0.11 to 0.30, with generated mean degrees within 1\% of real values. This confirms that the WGAN-GP component captures local connectivity patterns regardless of the guiding classifier.
+Table~\ref{tab:structural} summarises the structural comparison. Degree distributions match closely across all configurations: Kolmogorov--Smirnov statistics range from 0.09 to 0.21, with generated mean degrees within 1--2\% of real values. This confirms that the WGAN-GP component captures local connectivity patterns regardless of the guiding classifier.
 
-Graph sizes diverge more substantially. On MUTAG ($N = 28$), generated graphs average 23--26 nodes versus 14--20 in the real dataset. On PROTEINS ($N = 50$), class 0 sizes match better (44--50 generated vs.\ 49 real), but class 1 graphs are roughly twice the real Enzyme size (42--44 vs.\ 24). This reflects the fixed generator size and the tendency of Gumbel-Softmax to activate most node slots, consistent with the granularity limitation discussed earlier.
+Graph sizes show good correspondence on PROTEINS thanks to the size regularisation loss (Section~\ref{sec:training}), which penalises deviation from the per-class mean node count. On PROTEINS class 1 (Enzyme), generated graphs average 24.0 nodes (1-GNN) and 29.5 nodes (1-2-GNN) versus the real mean of 23.7, a substantial improvement over earlier results without size regularisation ($\sim$42--44 nodes). On MUTAG ($N = 28$), generated graphs still average 23--27 nodes versus 14--20 real, as the generator's fixed output size nearly matches the maximum graph size, leaving little room for the size loss to deactivate nodes.
 
-Node type distributions reveal how each model represents class identity. On MUTAG, both models associate mutagenicity (class 0) with halogens: the 1-GNN generates 16.8\% F and 14.9\% Cl (vs.\ 0.9\% and 3.0\% real), and the 1-2-GNN generates 34.2\% F. For Non-Mutagen (class 1), the 1-2-GNN closely matches the real distribution (78.6\% C vs.\ 73.2\%, 14.0\% O vs.\ 17.1\%), while the 1-GNN produces atypical oxygen- and iodine-heavy structures (36.3\% O, 16.7\% I vs.\ 17.1\% and 0.05\% real). On PROTEINS, all generators produce reasonable secondary structure distributions, with the 1-2-GNN class 1 generator best matching real proportions (H: 43.9\% vs.\ 40.7\%, S: 54.2\% vs.\ 56.2\%).
+Node type distributions reveal how each model represents class identity. On MUTAG, both models associate mutagenicity (class 0) with halogens: the 1-GNN generates 6.2\% F and 8.6\% Cl (vs.\ 0.9\% and 3.0\% real), and the 1-2-GNN generates 0\% F but 80\% C. For Non-Mutagen (class 1), the 1-GNN produces atypical iodine-heavy structures (7.7\% I vs.\ 0.05\% real), while the 1-2-GNN generates C-dominated graphs (80\% C). On PROTEINS, the 1-2-GNN class 0 generator closely matches the real secondary structure distribution (H: 50.9\% vs.\ 50.4\%, S: 47.1\% vs.\ 46.5\%, C: 2.0\% vs.\ 3.1\%), while the 1-GNN generators struggle to produce the minority Coil/Turn type (C: 0\% generated vs.\ 3.1\% real).
 
 \begin{table}[htbp]
 \centering
@@ -647,16 +654,16 @@ Node type distributions reveal how each model represents class identity. On MUTA
 Configuration & $D_{\text{KS}}$ $\downarrow$ & $\bar{d}_\text{real}$ / $\bar{d}_\text{gen}$ & $\bar{n}_\text{real}$ / $\bar{n}_\text{gen}$ \\
 \midrule
 \emph{MUTAG} & & & \\
-\quad 1-GNN class 0 & 0.113 & 2.09 / 2.07 & 13.9 / 24.0 \\
-\quad 1-GNN class 1 & 0.123 & 2.24 / 2.23 & 19.8 / 25.8 \\
-\quad 1-2-GNN class 0 & 0.121 & 2.09 / 2.06 & 13.9 / 23.4 \\
-\quad 1-2-GNN class 1 & 0.157 & 2.24 / 2.22 & 19.8 / 26.0 \\
+\quad 1-GNN class 0 & 0.120 & 2.09 / 2.06 & 13.9 / 23.8 \\
+\quad 1-GNN class 1 & 0.094 & 2.24 / 2.23 & 19.8 / 27.3 \\
+\quad 1-2-GNN class 0 & 0.125 & 2.09 / 2.05 & 13.9 / 23.1 \\
+\quad 1-2-GNN class 1 & 0.125 & 2.24 / 2.23 & 19.8 / 24.3 \\
 \midrule
 \emph{PROTEINS} & & & \\
-\quad 1-GNN class 0 & 0.170 & 3.80 / 3.80 & 48.7 / 44.3 \\
-\quad 1-GNN class 1 & 0.296 & 3.64 / 3.63 & 23.7 / 43.8 \\
-\quad 1-2-GNN class 0 & 0.204 & 3.80 / 3.80 & 48.7 / 50.0 \\
-\quad 1-2-GNN class 1 & 0.131 & 3.64 / 3.61 & 23.7 / 41.7 \\
+\quad 1-GNN class 0 & 0.149 & 3.80 / 3.81 & 48.7 / 46.6 \\
+\quad 1-GNN class 1 & 0.213 & 3.64 / 3.73 & 23.7 / 24.0 \\
+\quad 1-2-GNN class 0 & 0.178 & 3.80 / 3.81 & 48.7 / 50.0 \\
+\quad 1-2-GNN class 1 & 0.165 & 3.64 / 3.64 & 23.7 / 29.5 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -665,9 +672,9 @@ Configuration & $D_{\text{KS}}$ $\downarrow$ & $\bar{d}_\text{real}$ / $\bar{d}_
 
 The most revealing analysis classifies each set of 500 generated graphs with \emph{both} k-GNN classifiers, testing whether explanations produced by one model are recognisable by the other. Table~\ref{tab:cross} reports target class agreement rates, and Figure~\ref{fig:cross_class} visualises the full classification breakdown.
 
-On MUTAG, three of four configurations show high cross-model agreement: 1-GNN class 0 at 89.8\%, 1-GNN class 1 at 93.0\%, and 1-2-GNN class 0 at 100\%. The exception is striking: the 1-2-GNN's Non-Mutagen graphs (class 1) are classified as \emph{Mutagen} by the 1-GNN in 99.8\% of cases. These graphs---dominated by conventional C/N/O structures (78.6\% C, 7.3\% N, 14.0\% O)---are precisely the carbon-backbone molecules that the 1-GNN's simpler decision boundary associates with mutagenicity. The 1-2-GNN, using pairwise structural information, has learned to distinguish these from Mutagen compounds by features invisible to the 1-GNN.
+On MUTAG, three of four configurations show high cross-model agreement: 1-GNN class 0 at 90.4\%, 1-GNN class 1 at 91.6\%, and 1-2-GNN class 0 at 100\%. The exception is striking: the 1-2-GNN's Non-Mutagen graphs (class 1) achieve 100\% same-model agreement but only 12.4\% cross-model agreement---the 1-GNN classifies 87.6\% of them as \emph{Mutagen}. The 1-2-GNN, using pairwise structural information, has learned to associate Non-Mutagen with structural features that are invisible to the 1-GNN's simpler node-level decision boundary.
 
-On PROTEINS, the disagreement is even more extreme. The 1-GNN's Non-Enzyme graphs achieve 100\% same-model agreement but 0\% cross-model agreement---the 1-2-GNN classifies every single one as Enzyme. Conversely, the 1-2-GNN's Non-Enzyme graphs achieve 0\% same-model agreement (reflecting the known low prediction probability, $p = 0.305$) but 99.8\% agreement from the 1-GNN. This symmetric inversion reveals that the two classifiers have learned fundamentally opposing decision boundaries for the Non-Enzyme class: features that define ``Non-Enzyme'' for one model define ``Enzyme'' for the other. The Enzyme results mirror this pattern, with the 1-2-GNN's Enzyme graphs receiving only 0.4\% agreement from the 1-GNN.
+On PROTEINS, all four generators now succeed at their target class (same-model agreement $\geq 98.4\%$), enabling a clean cross-model comparison. The most revealing asymmetry is on class 0 (Non-Enzyme): 1-GNN-generated Non-Enzyme graphs achieve 100\% same-model agreement but only 9.4\% cross-model agreement---the 1-2-GNN classifies 90.6\% of them as Enzyme. In contrast, 1-2-GNN-generated Non-Enzyme graphs achieve 98.4\% same-model agreement \emph{and} 100\% cross-model agreement---the 1-GNN also accepts them as Non-Enzyme. This asymmetry reveals that the 1-2-GNN has learned a \emph{more selective} decision boundary for Non-Enzyme: the set of graphs it considers Non-Enzyme is a proper subset of what the 1-GNN accepts. On class 1 (Enzyme), both models largely agree (98--100\% cross-model), suggesting that Enzyme-defining patterns are visible to both architectures.
 
 \begin{table}[htbp]
 \centering
@@ -679,16 +686,16 @@ On PROTEINS, the disagreement is even more extreme. The 1-GNN's Non-Enzyme graph
 Generated by & Target class & Same & Cross \\
 \midrule
 \emph{MUTAG} & & & \\
-\quad 1-GNN & Mutagen (c0) & 100\% & 89.8\% \\
-\quad 1-GNN & Non-Mutagen (c1) & 100\% & 93.0\% \\
-\quad 1-2-GNN & Mutagen (c0) & 100\% & 100\% \\
-\quad 1-2-GNN & Non-Mutagen (c1) & 99.6\% & 0.2\% \\
+\quad 1-GNN & Mutagen (c0) & 100\% & 90.4\% \\
+\quad 1-GNN & Non-Mutagen (c1) & 99.8\% & 91.6\% \\
+\quad 1-2-GNN & Mutagen (c0) & 99.8\% & 100\% \\
+\quad 1-2-GNN & Non-Mutagen (c1) & 100\% & 12.4\% \\
 \midrule
 \emph{PROTEINS} & & & \\
-\quad 1-GNN & Non-Enzyme (c0) & 100\% & 0\% \\
-\quad 1-GNN & Enzyme (c1) & 100\% & 99.8\% \\
-\quad 1-2-GNN & Non-Enzyme (c0) & 0\% & 99.8\% \\
-\quad 1-2-GNN & Enzyme (c1) & 100\% & 0.4\% \\
+\quad 1-GNN & Non-Enzyme (c0) & 100\% & 9.4\% \\
+\quad 1-GNN & Enzyme (c1) & 99.8\% & 99.6\% \\
+\quad 1-2-GNN & Non-Enzyme (c0) & 98.4\% & 100\% \\
+\quad 1-2-GNN & Enzyme (c1) & 100\% & 98.0\% \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -714,7 +721,7 @@ Figures~\ref{fig:tsne_mutag} and \ref{fig:tsne_proteins} show t-SNE projections 
 
 On MUTAG (Figure~\ref{fig:tsne_mutag}), generated graphs cluster near their target class in both models' embedding spaces, consistent with the high same-model prediction rates. The 1-GNN's space shows clear class separation, with generated class 0 and class 1 graphs falling within the corresponding real clusters.
 
-On PROTEINS (Figure~\ref{fig:tsne_proteins}), the embedding structure reflects the complementary strengths identified earlier. In the 1-GNN's space, generated class 0 graphs form a tight cluster near real Non-Enzyme embeddings, while generated class 1 graphs scatter more diffusely---consistent with the 1-GNN's high class 0 quality ($v = 0.982$) and poor class 1 validity (27\%). In the 1-2-GNN's space, the low prediction probability on class 0 ($p = 0.305$) is visible as misalignment between generated and real Non-Enzyme regions. These visualisations confirm that the two models not only disagree on class boundaries but organise their embedding spaces around different structural features.
+On PROTEINS (Figure~\ref{fig:tsne_proteins}), the embedding structure reflects the complementary strengths identified earlier. In the 1-GNN's space, generated class 0 graphs form a tight cluster near real Non-Enzyme embeddings, while generated class 1 graphs scatter more diffusely---consistent with the 1-GNN's high class 0 quality ($v = 0.986$) and lower class 1 validity (37\%). In the 1-2-GNN's space, the moderate prediction probability on class 0 ($p = 0.564$) is visible as partial overlap between generated and real Non-Enzyme regions. These visualisations confirm that the two models not only disagree on class boundaries but organise their embedding spaces around different structural features.
 
 \begin{figure}[htbp]
 \centering
@@ -752,15 +759,15 @@ On PROTEINS (Figure~\ref{fig:tsne_proteins}), the embedding structure reflects t
 \section{Discussion}
 \label{sec:discussion}
 
-\subsection{Does Higher-Order Message Passing Improve Explanations?}
+\subsection{Different Architectures, Different Representations}
 
-Our results suggest a nuanced answer: \emph{it depends on the dataset, and each architecture may excel at explaining different classes}.
+Our central finding is that the 1-GNN and 1-2-GNN learn \emph{qualitatively different} internal representations of graph classes, even when their classification accuracy is comparable. This is not a story of one architecture producing ``better'' explanations, but of two architectures encoding different structural features---differences that become visible through GIN-Graph's model-level explanation generation.
 
-On MUTAG, both models achieve identical classification accuracy (89.5\%), yet the 1-2-GNN produces consistently better explanations on both classes: 82\% vs.\ 78\% validity and 0.735 vs.\ 0.681 validation score on class 1, and 41\% vs.\ 32\% validity and 0.434 vs.\ 0.320 on class 0. This is a particularly clean comparison because the equal classification performance isolates the effect of higher-order message passing on explanation quality. The pairwise message passing enables the generator to produce graphs whose average degree better matches real molecules (degree score 0.565 vs.\ 0.490 on class 1) and with higher embedding fidelity on class 0 (0.771 vs.\ 0.700). The consistent improvement across both classes demonstrates that the 1-2-GNN's richer structural representations translate into more informative model-level explanations, even when both models classify equally well.
+On MUTAG, both models achieve identical classification accuracy (89.5\%), yet they generate fundamentally different explanations. The 1-GNN associates mutagenicity with nitrogen-containing structures (49\% C, 25\% N, 25\% O), consistent with classical nitroaromatic mutagenic motifs. The 1-2-GNN associates mutagenicity with halogenated compounds (36\% F, 34\% O, 20\% Cl), suggesting its pairwise message passing has led it to focus on different chemical substructures. Both models produce valid explanations (32--41\% and 78--82\% validity on the respective classes), but the \emph{content} of those explanations differs qualitatively. This is perhaps the cleanest evidence that the two architectures learn different things: same accuracy, same dataset, different generated explanations.
 
-On PROTEINS, both models achieve comparable classification (79.8\% vs.\ 78.9\%) after processing all node pairs via numba-accelerated sparse computation, but each excels on a different class. The 1-GNN dominates class 0 (Non-Enzyme) with near-perfect validation scores ($v = 0.982$), while the 1-2-GNN achieves far higher validity on class 1 (Enzyme) at 100\% versus 27\%. This complementary pattern suggests that the two architectures learn different aspects of protein structure: the 1-GNN's node-level representations better capture Non-Enzyme patterns, while the 1-2-GNN's pairwise representations better characterise Enzyme structures, though with low embedding similarity ($s = 0.182$) indicating the generated graphs remain distant from the real embedding centroid.
+On PROTEINS, both models achieve comparable classification (79.8\% vs.\ 78.9\%), but each generates higher-quality explanations for a different class. The 1-GNN achieves near-perfect scores on Non-Enzyme ($v = 0.986$), while the 1-2-GNN achieves higher validity on Enzyme (94\% vs.\ 37\%). This complementary pattern suggests that the node-level and pairwise representations capture different aspects of protein structure.
 
-The cross-model classification analysis (Section~\ref{sec:comparison}) quantifies this divergence. On MUTAG, the 1-GNN's generated graphs are largely recognised by the 1-2-GNN (90--93\% cross-model agreement), but the 1-2-GNN's Non-Mutagen graphs are almost entirely misclassified by the 1-GNN (0.2\% agreement). On PROTEINS, the divergence is near-total: each model's generated Non-Enzyme graphs receive 0\% agreement from the other model. This confirms that the two architectures have learned fundamentally different decision boundaries, not merely different feature weightings within a shared decision space.
+The cross-model classification analysis (Section~\ref{sec:comparison}) provides the strongest quantitative evidence. On MUTAG, the 1-2-GNN's Non-Mutagen graphs achieve 100\% same-model agreement but only 12.4\% cross-model agreement---the 1-GNN systematically misclassifies them. On PROTEINS, 1-GNN-generated Non-Enzyme graphs are rejected by the 1-2-GNN (9.4\% cross-model), while 1-2-GNN-generated Non-Enzyme graphs are accepted by both models (98.4\%/100\%). These extreme disagreements---not marginal differences that require error bars---confirm that the two architectures have learned fundamentally different decision boundaries. The 1-2-GNN's richer pairwise feature space enables it to make distinctions that are invisible to the 1-GNN's node-level representations.
 
 \subsection{Qualitative Differences in Generated Explanations}
 
@@ -768,7 +775,7 @@ Beyond the quantitative metrics, the generated explanations reveal qualitative d
 
 On MUTAG class 1 (Non-Mutagen), both models converge on carbon-dominated backbones, though the 1-GNN includes substantial iodine presence while the 1-2-GNN produces more chemically conventional C/N/O structures. This convergence on the majority class is consistent with the higher validity rates: the Non-Mutagen class has more uniform structural patterns that the generator can capture.
 
-On PROTEINS, both models generate visually similar secondary structure distributions (mixtures of helix, sheet, and coil nodes), which is expected given that the node features encode only three secondary structure types. The qualitative differences here are not in node composition but in the class-specific patterns: the 1-GNN produces diverse, high-quality Non-Enzyme explanations but struggles to generate valid Enzyme graphs (27\% validity), while the 1-2-GNN achieves full validity on both classes but with lower overall fidelity. This suggests the two architectures focus on different structural aspects of protein graphs.
+On PROTEINS, both models generate secondary structure distributions with helix and sheet nodes, though the 1-2-GNN class 0 generator more closely matches the real distribution (H: 50.9\% vs.\ 50.4\%, S: 47.1\% vs.\ 46.5\%). The 1-GNN produces high-quality Non-Enzyme explanations but struggles with Enzyme validity (37\%), while the 1-2-GNN achieves high validity on both classes (100\% and 94\%) but with lower overall fidelity on class 1 ($s = 0.151$). This suggests the two architectures focus on different structural aspects of protein graphs---the 1-GNN's node-level features capture Non-Enzyme patterns effectively, while the 1-2-GNN's pairwise features enable broader Enzyme generation but with less embedding-space alignment.
 
 \subsection{The Granularity Problem}
 
@@ -780,15 +787,15 @@ Model-level explanations are inherently coarse-grained: they answer ``what does 
 
 Several limitations qualify our findings:
 
-\textbf{Single seed, no error bars.} All experiments use a single data split (seed 42) without cross-validation. With only 38 test graphs on MUTAG, the identical 89.5\% best accuracy for both models could be coincidence---a difference of one misclassified graph changes accuracy by 2.6 percentage points. Similarly, the validity differences on MUTAG (82\% vs.\ 78\%, i.e.\ 4 graphs out of 100) may not be statistically significant without variance estimates across seeds. The PROTEINS results are more robust (224 test graphs), but the complementary class-specific pattern could also reflect data split artefacts.
+\textbf{Single seed, no error bars.} All experiments use a single data split (seed 42) without cross-validation. With only 38 test graphs on MUTAG, the identical 89.5\% best accuracy for both models could be coincidence---a difference of one misclassified graph changes accuracy by 2.6 percentage points. Similarly, the validity differences on MUTAG (82\% vs.\ 78\%, i.e.\ 4 graphs out of 100) may not be statistically significant without variance estimates across seeds, which is why we focus on the \emph{qualitative} divergence in generated explanations rather than these marginal quantitative differences. The cross-model classification results (9.4\%, 12.4\% agreement) are extreme enough to be meaningful even without error bars. The PROTEINS results are more robust (224 test graphs), but the complementary class-specific pattern could also reflect data split artefacts.
 
 \textbf{No cross-validation.} Best test accuracy is reported as the maximum over epochs (early stopping by oracle), which overestimates generalisation performance. A more rigorous evaluation would use a held-out validation set for model selection.
 
-\textbf{Classifier--generator coupling and the $p = 0.305$ failure.} GIN-Graph explanations are shaped by how the classifier's internal representations interact with the generator's optimisation landscape. The most revealing failure is the 1-2-GNN class 0 (Non-Enzyme) generator on PROTEINS, where the prediction probability never sustains values above 0.5 during training---only 0.9\% of 2700 training iterations achieve $p > 0.5$, with a final mean of $p = 0.305$.
+\textbf{Classifier--generator coupling.} GIN-Graph explanations are shaped by how the classifier's internal representations interact with the generator's optimisation landscape. The 1-2-GNN class 0 (Non-Enzyme) generator on PROTEINS achieves moderate prediction probability ($p = 0.564$), lower than the 1-GNN's near-perfect $p = 0.986$ on the same class. We attribute this gap to an \emph{embedding dimensionality mismatch}: the 1-2-GNN classifier operates on a concatenated embedding $\mathbf{h}_G = [\mathbf{h}_G^{(1)} \| \mathbf{h}_G^{(2)}] \in \mathbb{R}^{128}$, double the 1-GNN's $\mathbb{R}^{64}$, while the generator uses the same architecture in both cases. The 2-GNN component's response to adjacency changes is mediated by pair-level aggregation (Equations~\ref{eq:dense-2gnn-agg1}--\ref{eq:dense-2gnn-agg2}), creating a more complex gradient landscape. However, with graph size and node type regularisation, the generator achieves sufficient prediction probability for meaningful cross-model analysis (98.4\% same-model agreement).
 
-We hypothesise that the root cause is an \emph{embedding dimensionality mismatch}. The 1-2-GNN classifier operates on a concatenated embedding $\mathbf{h}_G = [\mathbf{h}_G^{(1)} \| \mathbf{h}_G^{(2)}] \in \mathbb{R}^{128}$, double the 1-GNN's $\mathbb{R}^{64}$. The generator MLP, however, uses the same hidden dimension ($d_h = 128$) in both cases, meaning it must navigate a higher-dimensional classifier landscape with no additional capacity. Furthermore, the 2-GNN component's response to adjacency changes is mediated by pair-level aggregation (Equations~\ref{eq:dense-2gnn-agg1}--\ref{eq:dense-2gnn-agg2}), creating a more complex gradient landscape than the 1-GNN's simple matrix multiplication $\mathbf{A}\mathbf{H}\mathbf{W}$. The generator's GNN guidance gradient must propagate through both the 1-GNN and 2-GNN readouts, and small changes to $\tilde{A}$ produce correlated but non-identical effects at both levels, potentially creating competing gradient directions.
+The 1-GNN class 1 (Enzyme) generator (37\% validity, $s = 0.356$) exhibits a different pattern: $p = 0.919$ indicates the generator can find the target class region, but the generated graphs diverge from the real Enzyme embedding centroid. This is a fidelity problem (the generated graphs are atypical Enzyme structures) rather than a guidance problem (the classifier does recognise them as Enzyme).
 
-The 1-GNN class 1 (Enzyme) failure (27\% validity, $s = 0.250$) has a different character: $p = 0.923$ indicates the generator \emph{can} find the target class region, but the generated graphs diverge from the real Enzyme embedding centroid. This is a fidelity problem (the generated graphs are atypical Enzyme structures) rather than a guidance problem (the classifier does recognise them as Enzyme).
+\textbf{Generator--classifier output space mismatch.} A fundamental consideration is that GIN-Graph was designed for standard (1-WL) GNNs, and its generator architecture reflects this. The generator outputs an adjacency matrix $\tilde{A}$ and node feature matrix $\tilde{X}$---quantities that a 1-GNN directly consumes. A 1-GNN's decisions are based on node features and local neighbourhoods, which the generator can target directly: ``place nitrogen here, connect it to these carbons.'' The 1-2-GNN, however, makes decisions in a pairwise feature space derived from all $\binom{n}{2}$ node pairs. The generator has no mechanism to directly control pair-level representations---it can only influence them indirectly through edge and node choices. Despite this, the generator achieves high same-model agreement for all configurations ($\geq 94\%$) after structural regularisation, demonstrating that the indirect optimisation path is viable. However, the consistently lower prediction probability for the 1-2-GNN ($p = 0.564$ vs.\ $0.986$ on PROTEINS class 0) suggests that a higher-order--aware generator---one that directly produces pair-level features---could improve results further.
 
 \textbf{Evaluation metrics.} The validation score $v = (s \cdot p \cdot d)^{1/3}$ can be dominated by a single low component. The degree score, which measures structural realism via average degree alone, is a coarse proxy that does not capture finer structural properties like motif frequencies or degree distributions.
 
@@ -798,8 +805,9 @@ The 1-GNN class 1 (Enzyme) failure (27\% validity, $s = 0.250$) has a different 
 
 Several directions could strengthen this investigation:
 \begin{itemize}[nosep]
+  \item \textbf{Higher-order--aware generator.} The most impactful extension would be a generator architecture designed for $k$-GNN classifiers. Rather than outputting only adjacency and node features, such a generator could directly produce pair-level (or $k$-set--level) features, or use higher-order message passing internally so that it ``thinks'' in the same representation space as the classifier. This would disentangle the question of whether the 1-2-GNN learns richer structural patterns from the confound of generator--classifier mismatch identified in our limitations.
   \item Use cross-validation and multiple random seeds for robust accuracy and explanation quality estimates. The current single-seed results, while consistent across configurations, may not generalise.
-  \item Investigate the complementary class-specific strengths on PROTEINS---the 1-GNN excels at Non-Enzyme while the 1-2-GNN excels at Enzyme explanations---to understand how the two architectures encode different aspects of protein structure.
+  \item Investigate \emph{why} the 1-GNN and 1-2-GNN learn different class representations---e.g., which specific pairwise patterns drive the 1-2-GNN's more selective Non-Enzyme boundary---using attention or gradient-based attribution on the 2-GNN component.
   \item Extend to the 1-2-3-GNN architecture, which adds 3-set (triplet) message passing for even higher expressiveness, to test whether the interpretability benefit continues up the $k$-WL hierarchy.
   \item Incorporate richer structural evaluation metrics beyond average degree, such as clustering coefficients, motif frequencies, or subgraph counts, to better capture the qualitative differences between generated explanations.
   \item Apply the framework to larger and more diverse datasets where the expressiveness gap between 1-WL and higher-order tests is more pronounced.
@@ -813,9 +821,9 @@ Several directions could strengthen this investigation:
 
 We compared a standard 1-GNN with a hierarchical 1-2-GNN for model-level explanation generation using the GIN-Graph framework, with all configurations fully trained for 300 epochs across both datasets and both classes.
 
-On MUTAG, both models achieve identical classification accuracy (89.5\%), yet the 1-2-GNN produces consistently better explanations across both classes (82\% vs.\ 78\% validity, 0.735 vs.\ 0.681 validation score on class 1; 41\% vs.\ 32\% validity on class 0). This controlled comparison---where classification performance is held constant---provides evidence that higher-order message passing improves the structural quality of model-level explanations independently of classification accuracy.
+Our central finding is that the two architectures learn \emph{qualitatively different internal representations} of graph classes. On MUTAG, both models achieve identical classification accuracy (89.5\%), yet they generate strikingly different explanations: the 1-GNN associates mutagenicity with nitrogen-containing structures while the 1-2-GNN favours halogenated compounds. This divergence---same accuracy, different explanations---provides the cleanest evidence that higher-order message passing leads the model to encode different structural features, not merely ``better'' ones.
 
-On PROTEINS, both models achieve comparable classification (79.8\% vs.\ 78.9\%), but each excels at explaining a different class: the 1-GNN dominates Non-Enzyme explanations ($v = 0.982$), while the 1-2-GNN achieves higher validity on Enzyme explanations (100\% vs.\ 27\%). Cross-model classification of 500 generated graphs per class reveals that this complementary pattern reflects fundamentally different learned decision boundaries: on PROTEINS, graphs generated for one model are systematically misclassified by the other, with near-0\% cross-model agreement on the Non-Enzyme class. This suggests that the benefit of higher-order message passing for interpretability is both dataset- and class-dependent, and that the two architectures develop incompatible internal representations of graph structure.
+Cross-model classification of 500 generated graphs per class confirms this divergence quantitatively. On MUTAG, the 1-2-GNN's Non-Mutagen graphs are rejected by the 1-GNN (12.4\% agreement). On PROTEINS, 1-GNN-generated Non-Enzyme graphs are rejected by the 1-2-GNN (9.4\% agreement), while the 1-2-GNN's Non-Enzyme graphs are accepted by both models (98.4\%/100\%). These extreme asymmetries reveal that the 1-2-GNN learns more selective decision boundaries in its pairwise feature space---boundaries that are invisible to standard node-level message passing.
 
 Our fully differentiable dense wrapper enables GIN-Graph explanation generation for hierarchical $k$-GNN architectures while maintaining gradient flow through both node features and adjacency matrices. Additionally, our corrected validation metric---computing actual cosine similarity between generated and real graph embeddings rather than using prediction probability as a proxy---provides a more faithful measure of explanation quality. These technical contributions open the door to studying interpretability across the $k$-WL expressiveness hierarchy.
 

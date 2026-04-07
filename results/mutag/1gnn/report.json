@@ -1,0 +1,14 @@
+{
+  "model": "1gnn",
+  "dataset": "mutag",
+  "num_params": 21570,
+  "hidden_dim": 64,
+  "input_dim": 7,
+  "output_dim": 2,
+  "train_loss": 0.09795107692480087,
+  "train_acc": 0.9466666666666667,
+  "test_loss": 5.544976145029068,
+  "test_acc": 0.8157894736842105,
+  "best_test_acc": 0.8947368421052632,
+  "best_epoch": 84
+}

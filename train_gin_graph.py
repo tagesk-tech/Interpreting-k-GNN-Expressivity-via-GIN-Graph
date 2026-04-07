@@ -102,15 +102,22 @@ class GINGraphTrainer:
         # Class centroid for embedding similarity (computed lazily)
         self.class_centroid = None
 
+        # Precompute target node type distribution for regularization
+        self._target_node_type_dist = self._compute_node_type_dist(class_stats)
+
         # Training state
         self.epoch = 0
         self.global_step = 0
+        self.best_validation_score = 0.0
+        self.best_epoch = 0
         self.history = {
             'd_loss': [],
             'g_loss': [],
             'gan_loss': [],
             'gnn_loss': [],
             'degree_loss': [],
+            'size_loss': [],
+            'node_type_loss': [],
             'lambda': [],
             'pred_prob': [],
         }
@@ -201,6 +208,59 @@ class GINGraphTrainer:
 
         return self.config.degree_lambda * degree_loss
 
+    def _compute_size_loss(self, fake_adj: torch.Tensor) -> torch.Tensor:
+        """
+        Penalize generated graphs whose active node count deviates from class mean.
+
+        Args:
+            fake_adj: Generated adjacency matrices [batch, N, N]
+
+        Returns:
+            Scalar size loss tensor
+        """
+        if self.config.size_lambda == 0:
+            return torch.tensor(0.0, device=fake_adj.device)
+
+        stats = self.class_stats.get(self.target_class, {})
+        target_nodes = stats.get('avg_nodes', self.max_nodes)
+
+        # Soft active node count (differentiable via sigmoid of max-degree)
+        degrees = fake_adj.sum(dim=-1)  # [batch, N]
+        # Smooth approximation: sigmoid makes this differentiable near the 0.5 threshold
+        active_soft = torch.sigmoid(10.0 * (degrees - 0.5)).sum(dim=-1)  # [batch]
+
+        # Normalized squared error
+        size_error = ((active_soft - target_nodes) / max(target_nodes, 1.0)) ** 2
+        return self.config.size_lambda * size_error.mean()
+
+    def _compute_node_type_dist(self, class_stats: Dict) -> Optional[torch.Tensor]:
+        """Precompute target node type frequency distribution from real training data."""
+        # This will be populated from real data in train()
+        return None
+
+    def _compute_node_type_loss(self, fake_x: torch.Tensor) -> torch.Tensor:
+        """
+        Penalize deviation of generated node type frequencies from real class distribution.
+
+        Args:
+            fake_x: Generated node features [batch, N, D] (soft one-hot from Gumbel-Softmax)
+
+        Returns:
+            Scalar node type loss tensor
+        """
+        if self.config.node_type_lambda == 0 or self._target_node_type_dist is None:
+            return torch.tensor(0.0, device=fake_x.device)
+
+        target = self._target_node_type_dist.to(fake_x.device)
+
+        # Average soft type assignment across all nodes and batch
+        # fake_x is soft one-hot [batch, N, D], average gives generated distribution
+        gen_dist = fake_x.mean(dim=(0, 1))  # [D]
+        gen_dist = gen_dist / gen_dist.sum().clamp(min=1e-8)
+
+        # L2 distance between distributions
+        return self.config.node_type_lambda * ((gen_dist - target) ** 2).sum()
+
     def compute_class_centroid(self, dataset) -> None:
         """
         Compute the mean embedding of real graphs for the target class.
@@ -265,7 +325,7 @@ class GINGraphTrainer:
         self,
         batch_size: int,
         current_lambda: float
-    ) -> Tuple[float, float, float, float, float]:
+    ) -> Tuple[float, float, float, float, float, float, float]:
         """Single generator training step."""
         self.optimizer_G.zero_grad()
 
@@ -285,12 +345,15 @@ class GINGraphTrainer:
         )
         l_gnn = F.cross_entropy(gnn_logits, target_labels)
 
-        # Degree regularization loss (adaptive based on dataset variance)
+        # Structural regularization losses
         l_degree = self._compute_degree_loss(fake_adj)
+        l_size = self._compute_size_loss(fake_adj)
+        l_node_type = self._compute_node_type_loss(fake_x)
 
         # Combined loss with dynamic weighting
-        # Degree loss is always active to enforce structure
-        total_loss = (1 - current_lambda) * l_gan + current_lambda * l_gnn + l_degree
+        # Structural losses are always active to enforce realism
+        total_loss = ((1 - current_lambda) * l_gan + current_lambda * l_gnn
+                      + l_degree + l_size + l_node_type)
 
         total_loss.backward()
         self.optimizer_G.step()
@@ -300,7 +363,8 @@ class GINGraphTrainer:
             probs = F.softmax(gnn_logits, dim=1)
             pred_prob = probs[:, self.target_class].mean().item()
 
-        return total_loss.item(), l_gan.item(), l_gnn.item(), pred_prob, l_degree.item()
+        return (total_loss.item(), l_gan.item(), l_gnn.item(), pred_prob,
+                l_degree.item(), l_size.item(), l_node_type.item())
     
     def train(
         self,
@@ -325,6 +389,16 @@ class GINGraphTrainer:
         # Compute class centroid for embedding similarity
         if self.class_centroid is None:
             self.compute_class_centroid(dataset)
+
+        # Compute target node type distribution from real data
+        if self._target_node_type_dist is None and self.config.node_type_lambda > 0:
+            all_types = []
+            for data in dataset:
+                if data.x is not None:
+                    all_types.append(data.x.float().mean(dim=0))
+            if all_types:
+                self._target_node_type_dist = torch.stack(all_types).mean(dim=0)
+                self._target_node_type_dist = self._target_node_type_dist / self._target_node_type_dist.sum().clamp(min=1e-8)
 
         # Create data loader
         train_loader = torch.utils.data.DataLoader(
@@ -370,7 +444,8 @@ class GINGraphTrainer:
                 
                 # Train generator
                 current_lambda = weight_scheduler.get_lambda()
-                g_loss, gan_loss, gnn_loss, pred_prob, degree_loss = self.train_generator_step(
+                (g_loss, gan_loss, gnn_loss, pred_prob,
+                 degree_loss, size_loss, node_type_loss) = self.train_generator_step(
                     batch_size, current_lambda
                 )
 
@@ -387,6 +462,8 @@ class GINGraphTrainer:
                 self.history['gan_loss'].append(gan_loss)
                 self.history['gnn_loss'].append(gnn_loss)
                 self.history['degree_loss'].append(degree_loss)
+                self.history['size_loss'].append(size_loss)
+                self.history['node_type_loss'].append(node_type_loss)
                 self.history['lambda'].append(current_lambda)
                 self.history['pred_prob'].append(pred_prob)
             
@@ -398,7 +475,7 @@ class GINGraphTrainer:
                 print(f"Epoch {epoch:4d} | D Loss: {avg_d:7.4f} | G Loss: {avg_g:7.4f} | "
                       f"Pred Prob: {avg_prob:.4f} | λ: {current_lambda:.3f}")
 
-            # Intermediate checkpointing
+            # Intermediate checkpointing + best model tracking
             if (output_dir and checkpoint_interval > 0
                     and (epoch % checkpoint_interval == 0 or epoch == epochs - 1)):
                 os.makedirs(output_dir, exist_ok=True)
@@ -408,7 +485,7 @@ class GINGraphTrainer:
                     f'ckpt_{self.dataset_name}_{self.model_type}_epoch{epoch}.pt'
                 )
                 self.save_checkpoint(ckpt_path)
-                # Generate a small batch of samples
+                # Generate a small batch of samples and evaluate
                 sample_adjs, sample_xs, sample_metrics = self.generate_explanations(num_samples=16)
                 predictions = np.array([m.prediction_probability for m in sample_metrics])
                 sample_path = os.path.join(
@@ -417,8 +494,21 @@ class GINGraphTrainer:
                 )
                 np.savez(sample_path, adjs=sample_adjs, xs=sample_xs,
                          predictions=predictions, epoch=epoch)
+
+                # Track best checkpoint by mean validation score
+                mean_v = np.mean([m.validation_score for m in sample_metrics])
+                if mean_v > self.best_validation_score:
+                    self.best_validation_score = mean_v
+                    self.best_epoch = epoch
+                    best_path = os.path.join(
+                        output_dir,
+                        f'best_{self.dataset_name}_{self.model_type}.pt'
+                    )
+                    self.save_checkpoint(best_path)
+
                 if verbose:
-                    print(f"         → Checkpoint + 16 samples saved to {output_dir}")
+                    print(f"         → Checkpoint + 16 samples saved (v={mean_v:.3f}, "
+                          f"best={self.best_validation_score:.3f} @ ep{self.best_epoch})")
     
     def generate_explanations(
         self,
@@ -484,8 +574,11 @@ class GINGraphTrainer:
             'model_type': self.model_type,
             'history': self.history,
             'class_centroid': self.class_centroid,
+            'best_validation_score': self.best_validation_score,
+            'best_epoch': self.best_epoch,
+            'target_node_type_dist': self._target_node_type_dist,
         }, path)
-    
+
     def load_checkpoint(self, path: str):
         """Load model checkpoint."""
         checkpoint = torch.load(path, map_location=self.device, weights_only=False)
@@ -497,6 +590,12 @@ class GINGraphTrainer:
         self.global_step = checkpoint['global_step']
         self.history = checkpoint['history']
         self.class_centroid = checkpoint.get('class_centroid', None)
+        self.best_validation_score = checkpoint.get('best_validation_score', 0.0)
+        self.best_epoch = checkpoint.get('best_epoch', 0)
+        self._target_node_type_dist = checkpoint.get('target_node_type_dist', None)
+        # Backward compat: old histories lack new keys
+        self.history.setdefault('size_loss', [])
+        self.history.setdefault('node_type_loss', [])
 
 
 def load_pretrained_kgnn(

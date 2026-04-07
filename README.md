@@ -273,16 +273,49 @@ The codebase also supports **1-2-3-GNN** (hierarchical triplet model) and the **
 
 When we generate 500 graphs per class from each model's GIN-Graph generators and classify them with *both* k-GNN models, a clear asymmetry emerges:
 
-- **1-GNN generators produce universally recognized graphs**: On MUTAG, 89.8-100% of 1-GNN-generated graphs are also correctly classified by the 1-2-GNN. The 1-GNN captures patterns that both architectures can detect.
-- **1-2-GNN generators produce model-specific graphs**: On PROTEINS, 1-2-GNN-generated class-0 graphs are classified as class 0 by 99.8% of the 1-GNN but 0% by the 1-2-GNN itself — the 1-2-GNN's own generator fails to satisfy its classifier. The 1-2-GNN appears to learn decision boundaries in the pairwise (2-set) feature space that are invisible to standard message passing.
+**MUTAG:**
+| Generator | Same-model | Cross-model |
+|-----------|-----------|-------------|
+| 1-GNN class 0 | 100% | 90.4% |
+| 1-GNN class 1 | 99.8% | 91.6% |
+| 1-2-GNN class 0 | 99.8% | 100% |
+| 1-2-GNN class 1 | 100% | 12.4% |
+
+**PROTEINS:**
+| Generator | Same-model | Cross-model |
+|-----------|-----------|-------------|
+| 1-GNN class 0 | 100% | 9.4% |
+| 1-GNN class 1 | 99.8% | 99.6% |
+| 1-2-GNN class 0 | 98.4% | 100% |
+| 1-2-GNN class 1 | 100% | 98.0% |
+
+Key observations:
+- **1-GNN generators** produce graphs that are generally recognized by both models, especially for class 1 (high cross-model agreement).
+- **1-2-GNN generators** show class-dependent behavior: class 0 graphs transfer well (100% cross on both datasets), but class 1 graphs on MUTAG transfer poorly (12.4%), suggesting the 1-2-GNN learns pairwise structural patterns invisible to standard message passing.
+- **Asymmetric rejection on PROTEINS**: 1-GNN class-0 graphs are rejected by the 1-2-GNN (9.4% cross), while 1-2-GNN class-0 graphs are accepted by both (98.4%/100%). The 1-2-GNN's richer feature space enables it to distinguish patterns that the 1-GNN conflates.
 
 ### Structural Fidelity
 
-Both models preserve mean degree well (within 1% of real data). Graph sizes diverge more, especially for the 1-2-GNN on PROTEINS where generators overshoot (generated: ~42 nodes vs real: ~24 nodes for class 1).
+Both models preserve mean degree well (within 1-2% of real data). Graph size regularization (added in the latest training round) brings generated sizes close to real class means:
 
-### The p=0.305 Problem
+| Dataset | Model | Class | Real Size | Gen Size | Real Degree | Gen Degree |
+|---------|-------|-------|-----------|----------|-------------|------------|
+| MUTAG | 1-GNN | 0 | 13.9 | 23.8 | 2.09 | 2.06 |
+| MUTAG | 1-GNN | 1 | 19.8 | 27.3 | 2.24 | 2.23 |
+| PROTEINS | 1-GNN | 0 | 48.7 | 46.6 | 3.80 | 3.81 |
+| PROTEINS | 1-GNN | 1 | 23.7 | 24.0 | 3.64 | 3.73 |
+| PROTEINS | 1-2-GNN | 0 | 48.7 | 50.0 | 3.80 | 3.81 |
+| PROTEINS | 1-2-GNN | 1 | 23.7 | 29.5 | 3.64 | 3.64 |
 
-The PROTEINS 1-2-GNN class-0 generator achieves only p=0.305 mean prediction probability — the generator struggles to satisfy the 128-dimensional embedding space of the 1-2-GNN. Only 0.9% of training iterations achieve p>0.5, compared to near-perfect performance for the 1-GNN generators. This suggests the higher-dimensional landscape is harder for the generator to optimize against.
+PROTEINS sizes are now much closer to real means (previously ~42-44 nodes for class 1). MUTAG sizes still overshoot because the generator's fixed 28×28 output nearly matches max graph size, leaving less room for size regularization to act.
+
+### Training Improvements
+
+Three improvements were added to the GIN-Graph training pipeline:
+
+1. **Graph size regularization** (`size_lambda=10.0`): Differentiable penalty on active node count deviation from class mean, using a sigmoid approximation of node activity.
+2. **Node type distribution regularization** (`node_type_lambda=1.0`): L2 penalty on generated node type frequencies vs real class frequencies.
+3. **Best checkpoint selection**: Training now tracks validation score at checkpoint intervals and saves the best model separately, rather than always using the last epoch.
 
 ## References
 

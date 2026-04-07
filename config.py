@@ -116,6 +116,12 @@ class GINGraphConfig:
     # Degree regularization (adaptive based on dataset variance)
     degree_lambda: float = 1.0  # Weight for degree loss (auto-scales by 1/std²)
 
+    # Graph size regularization (penalize active node count deviation from class mean)
+    size_lambda: float = 10.0  # Weight for size loss (0 to disable)
+
+    # Node type distribution regularization (penalize deviation from class frequencies)
+    node_type_lambda: float = 1.0  # Weight for node type loss (0 to disable)
+
 
 @dataclass
 class ExperimentConfig:
