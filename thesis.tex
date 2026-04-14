@@ -235,121 +235,262 @@ The total generator loss combines adversarial, GNN-guidance, and structural regu
   \mathcal{L}_G = (1 - \lambda(t))\,\mathcal{L}_{\text{GAN}} + \lambda(t)\,\mathcal{L}_{\text{GNN}} + \mathcal{L}_{\text{reg}},
   \label{eq:total-loss}
 \end{equation}
-where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training, and $\mathcal{L}_{\text{reg}}$ comprises structural regularisation losses described below.
+where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training, and $\mathcal{L}_{\text{reg}}$ comprises structural regularisation losses described below. The three terms correspond to three goals: making the generated graphs look realistic ($\mathcal{L}_{\text{GAN}}$), making them belong to the target class ($\mathcal{L}_{\text{GNN}}$), and making them the right size and composition ($\mathcal{L}_{\text{reg}}$). We now explain each in turn, beginning with the adversarial component and the discriminator that drives it.
 
-\textbf{WGAN-GP loss.} We use a Wasserstein GAN with gradient penalty~\cite{gulrajani2017improved}. The discriminator $\mathcal{D}$ (a GNN-based network) estimates the Wasserstein distance between real and generated graph distributions. The discriminator loss is:
+\subsubsection{The Discriminator}
+
+The discriminator $\mathcal{D}$ is a graph neural network that maps a graph to a single scalar. It operates on dense batched inputs (node features $\mathbf{X} \in \mathbb{R}^{B \times N \times D}$ and adjacency $\mathbf{A} \in [0,1]^{B \times N \times N}$) so that the same forward pass handles both real and generated graphs. The architecture has three stages:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Two dense GCN layers} with hidden dimension 128 and ReLU activations. Each layer computes $\mathbf{H}^{(t)} = \sigma(\hat{\mathbf{A}}\,\mathbf{H}^{(t-1)}\,\mathbf{W}^{(t)})$, where $\hat{\mathbf{A}}$ is the adjacency with self-loops added and symmetric degree normalisation applied.
+  \item \textbf{Mean pooling} across the node dimension: $\mathbf{h}_G = \frac{1}{N} \sum_{v=1}^{N} \mathbf{h}_v^{(2)} \in \mathbb{R}^{128}$. This produces a single graph-level vector per graph.
+  \item \textbf{Two-layer MLP} with LeakyReLU activation: $\mathcal{D}(G) = \mathbf{w}^\top \text{LeakyReLU}_{0.2}(\mathbf{W}\,\mathbf{h}_G) \in \mathbb{R}$.
+\end{enumerate}
+
+Higher values of $\mathcal{D}(G)$ indicate that the graph appears real; lower values indicate that it appears generated. There is no sigmoid or softmax at the output --- $\mathcal{D}(G)$ is not a probability. In a standard binary classifier, the scalar would pass through a sigmoid $\sigma(x) = 1/(1+e^{-x})$ to produce a value in $[0, 1]$. Here the output is left unbounded. The reason is explained below in the comparison with vanilla GANs.
+
+The discriminator is distinct from the pretrained $k$-GNN classifier $\Phi$ used in $\mathcal{L}_{\text{GNN}}$: $\mathcal{D}$ is trained from scratch during GIN-Graph training and scores graphs on realism, while $\Phi$ is frozen and scores graphs on class membership.
+
+\subsubsection{The Two-Player Setup}
+
+The generator $\mathcal{G}$ and the discriminator $\mathcal{D}$ are trained in alternating steps:
+
+\begin{itemize}[nosep]
+  \item The \textbf{discriminator} receives a batch of real graphs from the training set and a batch of generated graphs from the current generator, and updates its weights to increase scores on real graphs and decrease scores on generated graphs.
+  \item The \textbf{generator} produces a batch of graphs, passes them through the discriminator, and updates its weights to increase the scores the discriminator assigns.
+\end{itemize}
+
+Neither network is trained to convergence --- they co-evolve. In each training step, the discriminator updates once, then the generator updates once ($n_{\text{critic}} = 1$). This alternation is necessary. If $\mathcal{D}$ were trained to convergence against a fixed generator, its output would be correct (low on all generated graphs, high on all real graphs) but uninformative as a gradient signal: the generated region of input space would become flat, so small changes to a generated graph would not change $\mathcal{D}$'s score, and the generator would receive no direction for improvement. Keeping $\mathcal{D}$ partially trained ensures that its scores still vary across the region where the generator's current outputs lie.
+
+\subsubsection{Discriminator Loss}
+
+With the setup in place, we can state the discriminator loss. In each training step, we draw a batch of $B = 64$ real graphs $G$ from the training set and a batch of $B$ fake graphs $\tilde{G}$ from the generator. The discriminator minimises:
 \begin{equation}
   \mathcal{L}_D = \underbrace{\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})]}_{\text{score on fake}} - \underbrace{\mathbb{E}_{G \sim p_{\text{data}}}[\mathcal{D}(G)]}_{\text{score on real}} + \underbrace{\lambda_{\text{GP}} \, \mathbb{E}_{\hat{G}}\!\left[(\|\nabla_{\hat{G}} \mathcal{D}(\hat{G})\|_2 - 1)^2\right]}_{\text{gradient penalty}},
   \label{eq:wgan-d}
 \end{equation}
-where $\hat{G} = \epsilon G + (1 - \epsilon)\tilde{G}$ with $\epsilon \sim \text{Uniform}(0,1)$ is a random interpolation, and $\lambda_{\text{GP}} = 10$. The gradient penalty enforces the Lipschitz constraint on $\mathcal{D}$, stabilising training. The generator's adversarial loss is simply:
+where each expectation $\mathbb{E}[\cdot]$ is in practice the average over one batch. Consider the first two terms:
+
+\begin{itemize}[nosep]
+  \item $\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})]$ is the average score the discriminator assigns to the generator's fake graphs. The discriminator minimises $\mathcal{L}_D$, so it wants this term to be small --- it wants to give fakes \emph{low} scores.
+  \item $-\mathbb{E}_{G \sim p_{\text{data}}}[\mathcal{D}(G)]$ is the \emph{negative} of the average score on real graphs. The discriminator wants this negative term to be as small as possible (very negative), which means it wants to give real graphs \emph{high} scores.
+\end{itemize}
+
+Together, these two terms encode one instruction: push real scores up, push fake scores down. The third term --- the gradient penalty --- is a stability device explained below.
+
+\subsubsection{Generator Loss}
+
+The generator's adversarial loss is the negation of the discriminator's ``score on fake'' term:
 \begin{equation}
   \mathcal{L}_{\text{GAN}} = -\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})].
   \label{eq:wgan-g}
 \end{equation}
 
-\textbf{GNN guidance loss.} We maximise the pretrained classifier's confidence on the target class $c$:
+The generator wants to maximise the score the discriminator assigns to its outputs. Since optimisers minimise by convention, we negate: minimising $-\mathbb{E}[\mathcal{D}(\tilde{G})]$ is equivalent to maximising $\mathbb{E}[\mathcal{D}(\tilde{G})]$.
+
+Real graphs do not appear in $\mathcal{L}_{\text{GAN}}$. The generator never sees real data directly. It learns about the real distribution only through the gradient signal from $\mathcal{D}$: real graphs train $\mathcal{D}$, and $\mathcal{D}$'s gradient informs the generator how to adjust its outputs. This indirect chain --- real data $\to$ train $\mathcal{D}$ $\to$ $\mathcal{D}$'s gradient $\to$ update generator --- is the core mechanism of GANs.
+
+\subsubsection{Why WGAN-GP and Not a Vanilla GAN}
+
+In a vanilla GAN, the discriminator ends in a sigmoid, so its output is a value in $[0, 1]$ interpreted as the probability of the input being real. The problem is gradient saturation. Once $\mathcal{D}$ can reliably separate real from generated graphs, the sigmoid output for generated graphs is pushed toward 0. The derivative of the sigmoid $\sigma(x) = 1/(1+e^{-x})$ is $\sigma(x)(1 - \sigma(x))$, which approaches zero when $\sigma(x) \approx 0$ or $\sigma(x) \approx 1$. The generator's weight updates are computed via the chain rule as a product of derivatives, one of which is this sigmoid derivative. A near-zero factor makes the entire product near-zero, and the generator stops learning. This is the core difficulty of vanilla GAN training.
+
+WGAN removes the sigmoid. The discriminator's output is an unbounded real number with no flat region. When $\mathcal{D}$ becomes strong, its output for generated graphs continues decreasing, and the derivative remains non-degenerate --- the generator continues to receive a gradient signal.
+
+Removing the sigmoid introduces a new problem: without any bound on $\mathcal{D}$'s output, it can reduce its loss without limit by scaling its weights up. Doubling all weights roughly doubles the output gap between real and generated scores. The gradient penalty in Equation~\eqref{eq:wgan-d} prevents this. The term
+\[
+  \lambda_{\text{GP}} \, \mathbb{E}_{\hat{G}}\!\left[(\|\nabla_{\hat{G}} \mathcal{D}(\hat{G})\|_2 - 1)^2\right]
+\]
+penalises deviation of the gradient magnitude of $\mathcal{D}$'s output (with respect to its input $\hat{G}$) from 1. Here $\hat{G} = \epsilon G + (1-\epsilon)\tilde{G}$ with $\epsilon \sim \text{Uniform}(0,1)$ is a random interpolation between a real and a generated graph, so the penalty is evaluated at points between the two distributions. The coefficient $\lambda_{\text{GP}} = 10$.
+
+This constraint has two effects. First, $\mathcal{D}$ cannot reduce its loss by weight rescaling, because rescaling increases the gradient magnitude and the penalty dominates. Second, the gradient flowing from $\mathcal{D}$ into the generator remains at a bounded magnitude --- neither vanishing (the vanilla GAN failure) nor exploding (the unconstrained WGAN failure).
+
+In summary: a vanilla GAN's sigmoid saturates when $\mathcal{D}$ is confident, killing the generator's gradient. WGAN-GP removes the sigmoid and adds a gradient penalty that keeps the gradient magnitude near 1. The generator therefore receives a non-degenerate learning signal regardless of $\mathcal{D}$'s strength.
+
+\subsubsection{GNN Guidance Loss}
+
+The adversarial loss enforces structural realism but does not steer generation toward any particular class. The GNN guidance loss maximises the pretrained classifier's confidence on the target class $c$:
 \begin{equation}
   \mathcal{L}_{\text{GNN}} = -\log p_\Phi(y = c \mid \tilde{G}),
   \label{eq:gnn-loss}
 \end{equation}
-where $p_\Phi(y = c \mid \tilde{G})$ is the softmax probability assigned to class $c$ by the pretrained $k$-GNN $\Phi$. Minimising this loss pushes the generator to produce graphs that the classifier recognises as belonging to class $c$.
+where $p_\Phi(y = c \mid \tilde{G})$ is the softmax probability that the pretrained $k$-GNN $\Phi$ assigns to class $c$ for the generated graph $\tilde{G}$. This is the negative log-likelihood of the target class. The classifier's weights are frozen; only the generator's weights are updated. Minimising $\mathcal{L}_{\text{GNN}}$ pushes the generator to produce graphs that the classifier assigns to class $c$.
 
-\textbf{Dynamic weighting.} The balance parameter $\lambda(t)$ follows a sigmoid schedule~\cite{sun2025gingraph}:
+\subsubsection{Dynamic Weighting}
+
+The balance parameter $\lambda(t)$ in Equation~\eqref{eq:total-loss} follows a sigmoid schedule~\cite{sun2025gingraph}:
 \begin{equation}
   \lambda(t) = \lambda_{\min} + (\lambda_{\max} - \lambda_{\min}) \cdot \sigma\!\left(k \cdot \left(\frac{2(t/T - p)}{1-p} - 1\right)\right),
   \label{eq:lambda}
 \end{equation}
-where $T$ is the total number of training iterations, $p = 0.4$ is the fraction of training before $\lambda$ begins increasing, $k = 10$ controls the steepness of the transition, and $\sigma(x) = 1/(1 + e^{-x})$ is the logistic sigmoid.
+where $T$ is the total number of training iterations ($T = 300$ epochs in our experiments), $p = 0.4$ is the fraction of training before $\lambda$ begins increasing, $k = 10$ controls the steepness of the transition, and $\sigma(x) = 1/(1 + e^{-x})$ is the logistic sigmoid.
 
-The intuition is as follows. When $t \ll pT$, the sigmoid argument is strongly negative, giving $\lambda(t) \approx 0$: the generator focuses on learning realistic graph structure (GAN loss dominates). As $t$ passes $pT$, $\lambda(t)$ increases rapidly toward 1: the generator shifts to producing class-specific patterns (GNN loss dominates). Without this schedule, the generator would collapse to structurally degenerate graphs that fool the classifier but look nothing like real molecules or proteins.
+When $t \ll pT$ (the first $\sim$120 epochs), the sigmoid argument is strongly negative, giving $\lambda(t) \approx 0$: the total loss is $\mathcal{L}_G \approx \mathcal{L}_{\text{GAN}}$, and the generator focuses on producing structurally realistic graphs without class-specific pressure. As $t$ passes $pT$, $\lambda(t)$ increases toward 1: the total loss shifts to $\mathcal{L}_G \approx \mathcal{L}_{\text{GNN}}$, directing the generator toward class-specific patterns. Without this schedule, the generator collapses to structurally degenerate graphs that satisfy the classifier but bear no resemblance to real data --- $\mathcal{L}_{\text{GNN}}$ can be minimised by any graph that triggers the correct class output, regardless of structural plausibility.
 
-\textbf{Structural regularisation.} The generator outputs a fixed-size $N \times N$ adjacency matrix, but real graphs vary in size. Without explicit constraints, the Gumbel-Softmax sampling tends to activate most node slots, producing graphs much larger than the real class mean. We add two regularisation terms:
+\subsubsection{Structural Regularisation}
+
+The generator outputs a fixed-size $N \times N$ adjacency matrix (with $N = 28$ for MUTAG, $N = 50$ for PROTEINS), but real graphs vary in size. Without explicit constraints, the Gumbel-Softmax sampling tends to activate most node slots, producing graphs much larger than the real class mean. We add two regularisation terms:
 \begin{equation}
   \mathcal{L}_{\text{reg}} = \lambda_{\text{size}} \cdot \left(\frac{\hat{n} - \bar{n}_c}{\bar{n}_c}\right)^2 + \lambda_{\text{type}} \cdot \sum_{i=1}^{D} \left(\hat{p}_i - p_i^c\right)^2,
   \label{eq:reg}
 \end{equation}
-where $\hat{n} = \sum_v \sigma(10 \cdot (d_v - 0.5))$ is a differentiable soft count of active nodes (using the sigmoid of the degree $d_v$ minus a threshold), $\bar{n}_c$ is the mean node count for class $c$, $\hat{p}_i$ is the generated frequency of node type $i$, and $p_i^c$ is the real frequency in class $c$. The size loss ($\lambda_{\text{size}} = 10$) penalises deviation from the class mean graph size, and the node type loss ($\lambda_{\text{type}} = 1$) encourages the generated node type distribution to match the real class distribution.
+where each term targets a different aspect of structural fidelity.
+
+The first term penalises deviation from the class mean graph size. Here $\hat{n} = \sum_v \sigma(10 \cdot (d_v - 0.5))$ is a differentiable \emph{soft count} of active nodes: for each node $v$, we compute its degree $d_v$ (the sum of its row in the adjacency matrix), apply the sigmoid $\sigma(10 \cdot (d_v - 0.5))$, and sum over all nodes. Nodes with degree well above 0.5 contribute $\approx 1$ to the count; isolated nodes (degree $\approx 0$) contribute $\approx 0$. The steep slope (factor of 10 inside the sigmoid) makes this a close approximation to counting non-isolated nodes while remaining differentiable. $\bar{n}_c$ is the mean node count for class $c$ in the training set (e.g., $\bar{n}_c \approx 14$ for MUTAG Mutagen, $\bar{n}_c \approx 24$ for PROTEINS Enzyme). The coefficient $\lambda_{\text{size}} = 10$ makes this penalty strong enough to counteract the Gumbel-Softmax tendency to activate all nodes.
+
+The second term penalises deviation from the class node-type distribution. Here $\hat{p}_i$ is the fraction of generated nodes assigned to type $i$, and $p_i^c$ is the corresponding fraction in real class-$c$ graphs. For example, on MUTAG class 0 (Mutagen), the real distribution has $p_{\text{C}}^0 \approx 0.56$, $p_{\text{N}}^0 \approx 0.12$, and so on across the 7 atom types. The L2 penalty $\sum_i (\hat{p}_i - p_i^c)^2$ encourages the generator to match these proportions. The coefficient $\lambda_{\text{type}} = 1$ is weaker than the size penalty, allowing the generator to deviate from the exact distribution when doing so improves class specificity.
 
 \subsection{Dense Wrapper for Differentiable $k$-GNN Inference}
 \label{sec:dense-wrapper}
 
-A key technical challenge is that the pretrained $k$-GNN uses sparse PyTorch Geometric message-passing operations (scatter-add on edge lists), while the generator outputs dense adjacency matrices $\tilde{A} \in [0,1]^{N \times N}$ that require gradient flow for backpropagation. We implement a fully differentiable \emph{dense wrapper} that re-implements the $k$-GNN forward pass using dense matrix operations while reusing the pretrained weights (which are frozen).
+This section explains why the pretrained classifier cannot be used directly inside the generator's training loop, and how we solve this. The solution for the 2-GNN branch is the main technical contribution of this thesis.
 
-\textbf{Dense 1-GNN.} The node-level update (Equation~\ref{eq:1gnn-matrix}) translates directly to dense batched computation. For a batch of $B$ graphs with node features $\mathbf{X} \in \mathbb{R}^{B \times N \times d}$ and adjacency $\mathbf{A} \in [0,1]^{B \times N \times N}$:
+\subsubsection{The Sparse Implementation}
+
+The classifier is trained on discrete, sparse graphs. A MUTAG molecule has around 20 edges out of $28 \times 28 = 784$ possible adjacency entries. Representing the graph as a full $N \times N$ matrix and computing $\mathbf{A}\,\mathbf{H}^{(t-1)}$ as a dense matrix product would waste computation on the zero entries.
+
+The classifier instead uses PyTorch Geometric's sparse representation. A graph is stored as an \texttt{edge\_index} tensor of shape $[2, |E|]$: a list of edges where the first row holds source indices and the second row holds destination indices. For a MUTAG molecule with 20 edges (40 directed entries for an undirected graph), this tensor has 40 columns instead of 784 matrix entries. Message passing is done via \texttt{scatter\_add}: for each edge $(i, j)$, the feature vector of node $j$ is transformed by $\mathbf{W}_2^{(t)}$ and added to an accumulator for node $i$. After processing all edges, the accumulator for each node contains the sum of its neighbours' transformed features --- the same result as $\mathbf{A}\,\mathbf{H}^{(t-1)}\,\mathbf{W}_2^{(t)}$, without materialising $\mathbf{A}$.
+
+The classifier's forward function has the signature \texttt{forward(x, edge\_index)}. It does not accept an adjacency matrix. For classifier training this is appropriate: the adjacency is a fixed discrete input, no gradients flow through it, and the sparse form is faster.
+
+Two points matter for what follows: (i) the sparse form computes exactly the same function as the dense matrix form on discrete graphs --- it is an implementation choice, not a modelling choice; and (ii) the sparse form was chosen for speed and memory reasons that no longer apply inside the generator's training loop.
+
+\subsubsection{The Problem the Generator Creates}
+
+The generator outputs a continuous adjacency matrix $\tilde{A} \in [0, 1]^{N \times N}$, where each entry is a soft edge weight produced by the Gumbel-Softmax straight-through estimator (Section~\ref{sec:generator}). Training requires backpropagating from $\mathcal{L}_{\text{GNN}} = -\log p_\Phi(y = c \mid \tilde{A}, \tilde{X})$ (Equation~\ref{eq:gnn-loss}) to the generator's weights. This requires the partial derivative $\partial f_\Phi / \partial \tilde{A}$ --- the gradient of the classifier's output with respect to its adjacency input.
+
+The classifier's forward function does not take an adjacency matrix. It takes an \texttt{edge\_index}. Converting $\tilde{A}$ to an edge list requires thresholding: keep entries where $\tilde{A}_{ij} > 0.5$, discard the rest. Thresholding is a step function. Its derivative is zero everywhere (and undefined at the step). After thresholding, the \texttt{edge\_index} consists of integer indices with no autograd connection to the continuous values they came from. The partial derivative $\partial f_\Phi / \partial \tilde{A}$ becomes zero. The generator receives no learning signal from $\mathcal{L}_{\text{GNN}}$.
+
+The failure is mechanical. The chain rule computes a product of derivatives along the path from $\tilde{A}$ to $\mathcal{L}_{\text{GNN}}$. One factor in that product is the derivative of the thresholding step, which is zero. A zero factor makes the entire product zero, and the generator's weights do not update.
+
+\subsubsection{The Fix}
+
+The fix is to rewrite the classifier's forward pass to consume $\tilde{A}$ directly as a continuous matrix. The mathematical function is unchanged --- on a discrete $\{0, 1\}$ adjacency matrix, the dense rewrite returns the same output as the sparse version. The implementation differs: where the sparse version uses \texttt{scatter\_add} on an edge list, the dense version uses matrix multiplication $\tilde{A}\,\mathbf{H}^{(t-1)}$ via \texttt{torch.matmul}. Autograd can differentiate matrix multiplication: if $\mathbf{Y} = \tilde{A}\,\mathbf{H}$, then $\partial \mathbf{Y} / \partial \tilde{A}_{ij} = \mathbf{H}[j, :]$, and every entry of $\tilde{A}$ has a well-defined derivative. The chain rule no longer contains a zero factor.
+
+The pretrained weights $\mathbf{W}_1^{(t)}, \mathbf{W}_2^{(t)}, \mathbf{W}_3^{(\ell)}, \mathbf{W}_4^{(\ell)}$ are copied from the sparse model unchanged. These weights parameterise the update rule (how features are transformed and combined), not the implementation (how edges are iterated). They are valid in both code paths and remain frozen throughout GIN-Graph training --- only the generator's weights are updated.
+
+The dense wrapper is not a different model. It is the same model with a different forward function that accepts continuous adjacency matrices and maintains a gradient path from $\tilde{A}$ to the classifier's output.
+
+\subsubsection{Dense 1-GNN}
+
+For the 1-GNN branch, the rewrite is direct. The node-level update (Equation~\ref{eq:1gnn-matrix}) translates to dense batched computation. For a batch of $B = 64$ graphs with node features $\mathbf{X} \in \mathbb{R}^{B \times N \times d}$ and adjacency $\mathbf{A} \in [0,1]^{B \times N \times N}$:
 \begin{equation}
   \mathbf{H}^{(t)} = \sigma\!\left(\mathbf{H}^{(t-1)} \mathbf{W}_1^{(t)} + \mathbf{A} \, \mathbf{H}^{(t-1)} \mathbf{W}_2^{(t)}\right),
   \label{eq:dense-1gnn}
 \end{equation}
-where the batch dimension is broadcast. The matrix product $\mathbf{A} \, \mathbf{H}^{(t-1)}$ replaces the sparse scatter-add operation and is fully differentiable with respect to the continuous $\mathbf{A}$. Crucially, the weights $\mathbf{W}_1^{(t)}, \mathbf{W}_2^{(t)}$ are copied from the pretrained sparse model and kept frozen.
+where the batch dimension is broadcast. The matrix product $\mathbf{A}\,\mathbf{H}^{(t-1)}$ replaces \texttt{scatter\_add}. Each entry $\tilde{A}_{ij}$ participates directly in the multiplication, so autograd can compute $\partial \mathbf{H}^{(t)} / \partial \tilde{A}_{ij}$. The weights $\mathbf{W}_1^{(t)}, \mathbf{W}_2^{(t)}$ are copied from the pretrained sparse model and kept frozen. This step is not novel --- similar dense rewrites for differentiable graph generation exist in the literature. We describe it to contrast with the 2-GNN case.
 
-\textbf{Dense 2-GNN.} The 2-GNN component requires constructing pair features and aggregating over 2-set neighbourhoods, both as dense operations. We represent all $\binom{N}{2}$ pair features as an $N \times N$ tensor (using only the upper triangle for the canonical pairs).
+\subsubsection{Dense 2-GNN --- The Technical Contribution}
 
-First, we construct the pair features from the 1-GNN node embeddings $\mathbf{H}^{(T_1)} \in \mathbb{R}^{B \times N \times d_T}$:
+The technical contribution of this thesis is extending the dense rewrite to the 2-GNN branch, where the sparse-to-dense conversion is more involved.
+
+Recall from Section~\ref{sec:2gnn} that the 2-GNN operates on node pairs $\{i, j\}$, and the neighbourhood definition (Equation~\ref{eq:2set-nbr}) requires checking whether a candidate node $w$ is adjacent in the original graph: $A_{iw} = 1$ when replacing $i$, or $A_{jw} = 1$ when replacing $j$. In the sparse implementation, this adjacency check uses a CSR (compressed sparse row) lookup: given node $i$, iterate over its edge list to find all $w$ with $(i, w) \in E$. This is fast for discrete graphs, but it is the same type of discrete operation that blocks gradients --- the neighbour set is a list of integer indices with no derivative connecting it to $\tilde{A}$.
+
+In the dense rewrite, this binary check becomes a continuous weight. Instead of checking whether $w$ is a neighbour of $i$ (answer: 0 or 1), we use $\tilde{A}_{iw} \in [0, 1]$ directly. Candidate pair features $\mathbf{g}[j, w]$ are multiplied by $\tilde{A}_{iw}$, contributing to the aggregation in proportion to $\tilde{A}_{iw}$. When $\tilde{A}_{iw} \approx 0$, the contribution is zero; when $\tilde{A}_{iw} \approx 1$, it is full; intermediate values contribute proportionally. On discrete $\{0, 1\}$ inputs, this reproduces the original neighbourhood rule exactly.
+
+First, we construct pair features from the 1-GNN node embeddings $\mathbf{H}^{(T_1)} \in \mathbb{R}^{B \times N \times d_T}$. For each pair $(i, j)$, we concatenate the two node embeddings in canonical min--max order with the continuous adjacency value $\tilde{A}_{ij}$:
 \begin{equation}
   \mathbf{F}[i,j] = \left[\mathbf{h}_{\min(i,j)} \;\|\; \mathbf{h}_{\max(i,j)} \;\|\; A_{ij}\right] \in \mathbb{R}^{2d_T + 1},
   \label{eq:dense-2gnn-feat}
 \end{equation}
-where the canonical ordering $(\min, \max)$ ensures that $\mathbf{F}[i,j] = \mathbf{F}[j,i]$, matching the unordered pair semantics. The isomorphism type $A_{ij}$ is the continuous adjacency value from the generator, maintaining differentiability.
+The canonical ordering $(\min, \max)$ ensures $\mathbf{F}[i,j] = \mathbf{F}[j,i]$, matching the unordered pair semantics of Equation~\eqref{eq:2set-feat}. The last entry $A_{ij}$ is the isomorphism type indicator --- in the sparse model this was a hard bit $\mathbb{1}[(i,j) \in E] \in \{0, 1\}$; here it is the continuous value from the generator.
 
-For the neighbourhood aggregation, recall from Equation~\eqref{eq:2set-nbr} that there are two cases. Using the transformed features $\mathbf{g} = \mathbf{F}\,\mathbf{W}_4^{(\ell)} \in \mathbb{R}^{B \times N \times N \times d_T}$, the aggregation for pair $(i,j)$ is:
+For pair-level message passing, recall from Equation~\eqref{eq:2set-nbr} that each 2-set $\{i, j\}$ has two kinds of neighbours: pairs formed by replacing $i$ with some $w$ adjacent to $i$, and pairs formed by replacing $j$ with some $w$ adjacent to $j$. In the dense version, ``adjacent to $i$'' is the continuous weight $\tilde{A}_{iw}$. Using the transformed features $\mathbf{g} = \mathbf{F}\,\mathbf{W}_4^{(\ell)} \in \mathbb{R}^{B \times N \times N \times d_T}$, the aggregation for pair $(i,j)$ sums over all candidate $w$, weighted by $\tilde{A}$:
 \begin{align}
   \text{agg}_1[i,j] &= \sum_{\substack{w=1 \\ w \neq j}}^{N} A_{iw} \cdot \mathbf{g}[j,w] & &\text{(replace } i \text{ with } w \text{ adjacent to } i\text{)}, \label{eq:dense-2gnn-agg1} \\
   \text{agg}_2[i,j] &= \sum_{\substack{w=1 \\ w \neq i}}^{N} A_{jw} \cdot \mathbf{g}[i,w] & &\text{(replace } j \text{ with } w \text{ adjacent to } j\text{)}. \label{eq:dense-2gnn-agg2}
 \end{align}
 
-The constraints $w \neq j$ in $\text{agg}_1$ and $w \neq i$ in $\text{agg}_2$ are essential: without them, the summation includes the self-pair $\{j,j\}$ or $\{i,i\}$, which has cardinality 1 and is not a valid 2-set. The self-loop exclusion ($A_{ii} = 0$) already removes $w = i$ from $\text{agg}_1$ and $w = j$ from $\text{agg}_2$, but the opposite boundary terms must be explicitly masked. In practice, we zero out the diagonal of $\mathbf{g}$ (setting $\mathbf{g}[k,k] = \mathbf{0}$ for all $k$) before the summation, which eliminates both boundary terms simultaneously.
+The exclusions $w \neq j$ in $\text{agg}_1$ and $w \neq i$ in $\text{agg}_2$ prevent including the self-pair $\{j, j\}$ or $\{i, i\}$, which is not a valid 2-set. The self-loop exclusion ($A_{ii} = 0$) removes $w = i$ from $\text{agg}_1$ and $w = j$ from $\text{agg}_2$, but the terms $w = j$ in $\text{agg}_1$ and $w = i$ in $\text{agg}_2$ must be explicitly masked. We zero the diagonal of $\mathbf{g}$ (setting $\mathbf{g}[k, k] = \mathbf{0}$ for all $k$) before summation, which eliminates both boundary terms: $\mathbf{g}[j, j] = \mathbf{0}$ removes the $w = j$ term in $\text{agg}_1$, and $\mathbf{g}[i, i] = \mathbf{0}$ removes the $w = i$ term in $\text{agg}_2$.
 
-These sums are computed efficiently via Einstein summation (\texttt{einsum}) over the masked $\mathbf{g}$. The key insight is that multiplying by $A_{iw}$ (a continuous value from the generator) acts as a soft attention over potential neighbours, and gradients flow through $\mathbf{A}$ into the generator. The full 2-GNN layer update is then:
+These sums are computed via Einstein summation (\texttt{einsum}) over the masked $\mathbf{g}$. The full 2-GNN layer update is:
 \begin{equation}
   \mathbf{F}^{(\ell+1)} = \sigma\!\left(\mathbf{F}^{(\ell)}\,\mathbf{W}_3^{(\ell)} + \text{agg}_1^{(\ell)} + \text{agg}_2^{(\ell)}\right).
   \label{eq:dense-2gnn-update}
 \end{equation}
 
-After $T_2$ layers, the 2-GNN readout sums over the upper-triangular entries:
+After $T_2 = 2$ layers, the 2-GNN readout sums over the upper-triangular entries (one entry per canonical pair):
 \begin{equation}
   \mathbf{h}_G^{(2)} = \sum_{i < j} \mathbf{F}^{(T_2)}[i,j].
   \label{eq:dense-2gnn-pool}
 \end{equation}
 
-Both the 1-GNN and 2-GNN dense paths are fully differentiable through $\mathbf{A}$, enabling the generator to learn how edge structure affects the classifier's output at both the node and pair level.
+\subsubsection{Summary}
+
+The dense wrapper preserves the exact mathematical behaviour of the pretrained classifier on discrete graphs while extending its domain to continuous adjacency matrices. It is an implementation change, not a model change --- all pretrained weights are reused unchanged. For the 1-GNN branch, the change is replacing \texttt{scatter\_add} with \texttt{matmul}. For the 2-GNN branch, the discrete adjacency check $A_{iw} \in \{0, 1\}$ must be replaced by a continuous weight $\tilde{A}_{iw} \in [0, 1]$ that participates in the computation graph. This reformulation is the technical contribution of this section. Without it, the GIN-Graph training loop --- which requires $\partial f_\Phi / \partial \tilde{A}$ to be well-defined --- cannot be run against a 1-2-GNN classifier.
 
 \subsection{Validation Score}
 \label{sec:validation}
 
-We evaluate generated explanations using a composite validation score~\cite{sun2025gingraph}:
+At evaluation time, both the generator and the classifier are frozen --- no gradients are computed. We sample 100 graphs per class at temperature $\tau = 0.1$ (which produces sharper, more discrete outputs than the training temperature of $\tau = 1.0$) and assign each graph a score that quantifies its quality as an explanation. The score must be low if the graph fails on \emph{any} axis --- class identity, internal representation, or structural plausibility --- so that a graph that succeeds on one dimension cannot compensate for failure on another.
+
+The composite validation score~\cite{sun2025gingraph} is:
 \begin{equation}
   v = (s \cdot p \cdot d)^{1/3},
   \label{eq:validation}
 \end{equation}
-comprising three components. The geometric mean ensures that all three aspects must be satisfied: a graph cannot achieve a high score if it fails on any single component.
+where $p$ measures the classifier's prediction, $s$ measures where the graph sits in the classifier's internal embedding space, and $d$ measures whether the graph has a realistic amount of connectivity.
 
-\textbf{Embedding similarity} ($s$). The cosine similarity between the generated graph's embedding (computed via the dense wrapper) and a \emph{class centroid}---the mean embedding of all real graphs in the target class, computed via the sparse $k$-GNN on the training set:
+The geometric mean enforces non-compensation between components. If a generated graph has $p = 0.95$, $s = 0.95$, but $d = 0.05$ (correct class, correct embedding region, wrong connectivity), the geometric mean gives $v \approx 0.36$ --- correctly indicating failure. An arithmetic mean would give $v \approx 0.65$, above the validity threshold, hiding the structural problem. We now define each component.
+
+\subsubsection{Prediction Probability ($p$)}
+
+The prediction probability is the frozen classifier's softmax output for the target class:
+\[
+  p = p_\Phi(y = c \mid \tilde{G}).
+\]
+This is the same quantity the generator was trained to maximise via $\mathcal{L}_{\text{GNN}}$ (Equation~\ref{eq:gnn-loss}). For a well-trained generator, $p$ is close to 1 at evaluation time. This is expected: the generator spent hundreds of epochs optimising this quantity. The component $p$ therefore functions as a sanity check that the generator converged, not as a discriminator between good and poor generators. A generator producing graphs with $p < 0.5$ did not converge.
+
+\subsubsection{Embedding Similarity ($s$) --- Corrected Metric}
+
+For any graph $G$ the classifier processes, the forward pass produces a single vector $\mathbf{h}_G$ representing the entire graph. In the 1-GNN, this vector is the sum pool of the final node embeddings: $\mathbf{h}_G = \sum_{v \in V} \mathbf{h}_v^{(T_1)} \in \mathbb{R}^{d_T}$ (Equation~\ref{eq:1gnn-readout}). In the 1-2-GNN, it is the concatenation of the node-level and pair-level readouts: $\mathbf{h}_G = [\mathbf{h}_G^{(1)} \| \mathbf{h}_G^{(2)}] \in \mathbb{R}^{2d_T}$ (Equation~\ref{eq:12gnn-readout}). One vector per graph, in the classifier's embedding space. Every forward pass on any graph produces exactly one such vector.
+
+The \emph{class centroid} $\boldsymbol{\mu}_c$ is the mean of $\mathbf{h}_G$ over all real training graphs in class $c$:
+\[
+  \boldsymbol{\mu}_c = \frac{1}{|\mathcal{G}_c|} \sum_{G \in \mathcal{G}_c} \mathbf{h}_G.
+\]
+For MUTAG class 0, $\mathcal{G}_c$ contains 125 molecules, so $\boldsymbol{\mu}_c$ is the average of 125 embedding vectors. The centroid sits in the same space as any individual $\mathbf{h}_G$ and marks the average location where real class-$c$ graphs lie according to the classifier. It is computed once using the classifier's sparse implementation (real graphs are discrete, so sparse is appropriate), stored in the GIN-Graph checkpoint, and reused for every evaluation.
+
+The embedding similarity is then the cosine similarity between the generated graph's embedding and this centroid:
 \begin{equation}
   s = \cos(\mathbf{h}_{\tilde{G}},\, \boldsymbol{\mu}_c) = \frac{\mathbf{h}_{\tilde{G}} \cdot \boldsymbol{\mu}_c}{\|\mathbf{h}_{\tilde{G}}\| \, \|\boldsymbol{\mu}_c\|}, \quad \text{where } \boldsymbol{\mu}_c = \frac{1}{|\mathcal{G}_c|} \sum_{G \in \mathcal{G}_c} \mathbf{h}_G.
   \label{eq:emb-sim}
 \end{equation}
-This measures whether the generated graph ``looks like'' a real class member in the model's learned representation space. The centroid $\boldsymbol{\mu}_c$ is computed once and stored in the GIN-Graph checkpoint.
 
-\textbf{Note on the corrected metric.} The original GIN-Graph implementation used the prediction probability $p$ as a proxy for embedding similarity (effectively setting $s = p$), which collapsed the validation score to $v = (p^2 \cdot d)^{1/3}$. We corrected this by computing actual cosine similarity via the dense wrapper's \texttt{get\_embedding()} method.
+Cosine similarity measures the angle between two vectors, normalised so that identical direction gives $s = 1$ and orthogonal vectors give $s = 0$. A high $s$ means the generated graph occupies the same region of embedding space as real class-$c$ graphs. A low $s$ means the classifier assigns the graph to class $c$ but via an internal representation far from typical class members --- the generator has found an input that triggers the correct output without resembling the real data in the classifier's internal representation.
 
-\textbf{Prediction probability} ($p$). The softmax probability assigned to the target class by the pretrained classifier: $p = p_\Phi(y = c \mid \tilde{G})$.
+\textbf{Corrected metric.} The original GIN-Graph implementation~\cite{sun2025gingraph} used the prediction probability $p$ as a proxy for embedding similarity, setting $s = p$. This collapsed the validation score to $v_{\text{original}} = (p^2 \cdot d)^{1/3}$, conflating two quantities that measure different things. A graph can have $p = 1$ and still have an internal representation far from any real class member --- high prediction probability does not imply high embedding similarity. We correct this by computing actual cosine similarity between $\mathbf{h}_{\tilde{G}}$ and $\boldsymbol{\mu}_c$, using the dense wrapper's \texttt{get\_embedding()} method to extract the embedding from the frozen classifier for a continuous-valued generated graph. This correction depends on the dense wrapper (Section~\ref{sec:dense-wrapper}): without a differentiable forward pass, there is no way to extract $\mathbf{h}_{\tilde{G}}$ from a continuous adjacency matrix. The two contributions of this thesis therefore chain: Section~\ref{sec:dense-wrapper} provides the infrastructure that makes the corrected metric in this section possible.
 
-\textbf{Degree score} ($d$). A Gaussian kernel measuring how realistic the graph's average degree is relative to the target class:
+The practical consequence is visible in the results. On PROTEINS Enzyme, both models achieve high prediction probability ($p = 0.919$ and $p = 0.998$) but low embedding similarity ($s = 0.356$ and $s = 0.151$). Under the original $s = p$ proxy, this divergence would be invisible.
+
+\subsubsection{Degree Score ($d$)}
+
+The average degree of a graph is $\bar{d}_{\tilde{G}} = 2|\tilde{E}| / |\tilde{V}|$: total degree divided by node count, since each edge contributes 1 to each of its two endpoints. Let $\mu_d$ and $\sigma_d$ be the mean and standard deviation of average degrees across real class-$c$ graphs, both precomputed once from the training set. The degree score is:
 \begin{equation}
   d = \exp\!\left(-\frac{(\bar{d}_{\tilde{G}} - \mu_d)^2}{2\sigma_d^2}\right),
   \label{eq:degree}
 \end{equation}
-where $\bar{d}_{\tilde{G}} = 2|\tilde{E}|/|\tilde{V}|$ is the average degree of the generated graph, and $\mu_d, \sigma_d$ are the mean and standard deviation of average degrees across real graphs in the target class. A graph with average degree close to the class mean receives $d \approx 1$; one with atypical degree is penalised exponentially.
+which is a Gaussian centred at the class mean $\mu_d$ with width $\sigma_d$. When $\bar{d}_{\tilde{G}} = \mu_d$, the score is $d = 1$. As the generated degree deviates from the mean, $d$ decreases: one standard deviation off gives $d \approx 0.61$, two standard deviations give $d \approx 0.14$, three give $d \approx 0.01$. Classes with high variance in graph sizes get a wider (more permissive) Gaussian than classes with uniform sizes.
 
-A generated graph is considered \textbf{valid} if its average degree falls within 3 standard deviations of the class mean and its validation score exceeds 0.5.
+The degree score provides a structural sanity check that $s$ and $p$ cannot provide. Both $s$ and $p$ operate in the classifier's learned embedding space. A generator could produce graphs with correct class identity and correct embedding location but with edge counts far from any real graph. The degree score catches this failure mode. It does not capture fine-grained structural properties (motif frequencies, degree distributions), but it reliably rejects graphs with wrong connectivity at the coarsest level.
 
-\textbf{Granularity} ($\kappa$). We additionally report:
+\subsubsection{Validity Threshold}
+
+A generated graph is considered \textbf{valid} if two conditions hold: (i) $v > 0.5$, and (ii) $\bar{d}_{\tilde{G}}$ falls within 3 standard deviations of $\mu_d$. The degree score $d$ therefore appears twice: once as a soft component inside $v$, and once as a hard gate via the 3$\sigma$ condition. The hard gate catches graphs with abnormal connectivity regardless of their $s$ and $p$ values --- a graph with $\bar{d}_{\tilde{G}}$ far outside the class range is rejected even if it scores well on the other two components. The validity rates reported in Section~\ref{sec:results} are filtered on both conditions.
+
+\subsubsection{Granularity ($\kappa$)}
+
+We additionally report:
 \begin{equation}
   \kappa = 1 - \min\!\left(1,\; \frac{n_{\tilde{G}}}{\bar{n}_c}\right),
   \label{eq:granularity}
 \end{equation}
-where $n_{\tilde{G}}$ is the number of active (non-isolated) nodes in the explanation and $\bar{n}_c$ is the average number of nodes in class $c$. Values near 0 indicate coarse-grained explanations (graph-sized); values near 1 would indicate fine-grained substructure highlights.
+where $n_{\tilde{G}}$ is the number of active (non-isolated) nodes in the generated graph and $\bar{n}_c$ is the mean node count of real class-$c$ graphs (the same $\bar{n}_c$ used in $\mathcal{L}_{\text{size}}$, Equation~\ref{eq:reg}). When $n_{\tilde{G}} \geq \bar{n}_c$, the ratio saturates at 1 and $\kappa = 0$: the explanation is graph-sized. When $n_{\tilde{G}} \ll \bar{n}_c$, $\kappa$ approaches 1: the explanation is a small substructure.
+
+In these experiments, $\kappa \approx 0$ for all configurations. This is a structural property of GIN-Graph, not a failure. The generator outputs fixed-size $N \times N$ tensors and $\mathcal{L}_{\text{size}}$ pushes $\hat{n}$ toward $\bar{n}_c$, so explanations are graph-sized by construction. Model-level explainers answer ``what does a typical class member look like?'' rather than ``which subgraph drives this prediction?'' --- the latter requires instance-level methods such as GNNExplainer. We report $\kappa$ for completeness and as a diagnostic; this limitation is discussed further in Section~\ref{sec:discussion}.
+
+\subsubsection{Evaluation Protocol}
+
+Each configuration generates 100 graphs and reports: (i) the \emph{validity rate}, the fraction passing both the $v > 0.5$ and the 3$\sigma$ degree conditions; (ii) the \emph{mean validation score}, averaged across all 100 graphs; (iii) the \emph{component decomposition} $s$, $p$, $d$ (Table~\ref{tab:decomposition}), where the corrected metric is most visible --- patterns such as high $p$ with low $s$ on PROTEINS Enzyme would be invisible under the original $s = p$ proxy; and (iv) the \emph{top-ranked explanations} sorted by $v$, shown in the figures. All four quantities are forward-pass computations on frozen networks. No training or gradients are involved.
 
 % ============================================================
 % 4. Experimental Setup
