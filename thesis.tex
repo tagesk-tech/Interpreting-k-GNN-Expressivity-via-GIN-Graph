@@ -690,7 +690,7 @@ Class 0 (Non-Mutagen) remains the harder class for both models. It is also the m
   \caption{1-2-GNN explanations for Non-Mutagen}
   \label{fig:mutag-12gnn-c0}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on MUTAG class 0 (Non-Mutagen). The 1-GNN repeatedly produces mixed C/N/O scaffolds with scattered halogens that stay near the real non-mutagen composition, whereas the 1-2-GNN collapses onto narrower fluorine- and bromine-heavy prototype families that drift away from it. Image titles show the legacy class labels from earlier figure generation and will be regenerated after the handler fix; the class-0 index and underlying graphs are unchanged. Node colours indicate atom types (see Figure~\ref{fig:legend}).}
+\caption{Top-ranked GIN-Graph explanations on MUTAG class 0 (Non-Mutagen). The 1-GNN repeatedly produces mixed C/N/O scaffolds with scattered halogens that stay near the real non-mutagen composition, whereas the 1-2-GNN collapses onto narrower fluorine- and bromine-heavy prototype families that drift away from it. Node colours indicate atom types (see Figure~\ref{fig:legend}). (In-image title strips use the pre-fix class names.)}
 \label{fig:mutag-class0}
 \end{figure}
 
@@ -711,7 +711,7 @@ Figure~\ref{fig:mutag-explanations} shows the top-ranked explanation graphs for 
   \caption{1-2-GNN explanations for Mutagen}
   \label{fig:mutag-12gnn}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on MUTAG class 1 (Mutagen). The 1-GNN explanations often attach oxygen- and iodine-bearing branches to a carbon backbone and introduce atypical iodine, while the 1-2-GNN explanations are more compact and carbon-dominated with smaller N/O motifs that stay closer to the real mutagenic C/N/O balance. Image titles show the legacy class labels from earlier figure generation and will be regenerated after the handler fix. Node colours indicate atom types (see Figure~\ref{fig:legend}).}
+\caption{Top-ranked GIN-Graph explanations on MUTAG class 1 (Mutagen). The 1-GNN explanations often attach oxygen- and iodine-bearing branches to a carbon backbone and introduce atypical iodine, while the 1-2-GNN explanations are more compact and carbon-dominated with smaller N/O motifs that stay closer to the real mutagenic C/N/O balance. Node colours indicate atom types (see Figure~\ref{fig:legend}). (In-image title strips use the pre-fix class names.)}
 \label{fig:mutag-explanations}
 \end{figure}
 
@@ -764,7 +764,7 @@ Both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%), so 
   \caption{1-GNN explanations for Non-Enzyme}
   \label{fig:proteins-1gnn-c1}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-GNN). The Enzyme explanations (class 0) are large balanced H/S structures near the 50-node cap, while the Non-Enzyme explanations (class 1) are more variable in size and shape. Image titles show the legacy class labels from earlier figure generation and will be regenerated after the handler fix. Node colours indicate secondary structure types: helix (H, pink), sheet (S, teal), coil/turn (C, green).}
+\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-GNN). The Enzyme explanations (class 0) are large balanced H/S structures near the 50-node cap, while the Non-Enzyme explanations (class 1) are more variable in size and shape. Node colours indicate secondary structure types: helix (H, pink), sheet (S, teal), coil/turn (C, green). (In-image title strips use the pre-fix class names.)}
 \label{fig:proteins-explanations}
 \end{figure}
 
@@ -783,7 +783,7 @@ Both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%), so 
   \caption{1-2-GNN explanations for Non-Enzyme}
   \label{fig:proteins-12gnn-c1}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-2-GNN). The Enzyme explanations (class 0) are highly regular 50-node H/S structures, whereas the Non-Enzyme explanations (class 1) repeatedly collapse onto sheet-dominated cores with smaller helix appendages. Class 0 explanations achieve validation scores $v = 0.76$--$0.82$ with 50 nodes, while class 1 explanations achieve $v = 0.52$--$0.58$ with 29--32 nodes. Image titles show the legacy class labels from earlier figure generation.}
+\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-2-GNN). The Enzyme explanations (class 0) are highly regular 50-node H/S structures, whereas the Non-Enzyme explanations (class 1) repeatedly collapse onto sheet-dominated cores with smaller helix appendages. Class 0 explanations achieve validation scores $v = 0.76$--$0.82$ with 50 nodes, while class 1 explanations achieve $v = 0.52$--$0.58$ with 29--32 nodes. (In-image title strips use the pre-fix class names.)}
 \label{fig:proteins-12gnn-explanations}
 \end{figure}
 
@@ -915,12 +915,12 @@ A complementary graph-level view comes from normalized node-type entropy,
 \[
   H_{\mathrm{norm}}(G) = \frac{-\sum_t p_t(G)\log p_t(G)}{\log K},
 \]
-where $p_t(G)$ is the proportion of node type $t$ in graph $G$ and $K$ is the number of node types in the dataset. Lower values mean that the graphs are more compositionally homogeneous, while higher values mean that the node types are more mixed. Figure~\ref{fig:node-entropy} shows that these entropy shifts are again class-dependent. The clearest low-entropy case is PROTEINS Non-Enzyme (class 1), where the 1-2-GNN generated graphs have much lower median entropy than both the real graphs (0.303 vs.\ 0.536) and the 1-GNN graphs (0.303 vs.\ 0.525), which matches the strongly sheet-dominated explanation family. On MUTAG Mutagen (class 1) the same pattern appears more moderately (median 0.301 for 1-2-GNN vs.\ 0.545 for 1-GNN). On MUTAG Non-Mutagen (class 0), the more notable result is that both generators are more heterogeneous than the real class (medians 0.621 and 0.677 vs.\ 0.463), not just that the 1-2-GNN sits above the 1-GNN. On PROTEINS Enzyme (class 0), both generators collapse to an almost fixed compositional template with near-zero variance in entropy (standard deviations 0.003 for 1-GNN and 0.005 for 1-2-GNN, versus 0.143 for the real graphs). So the higher-order model does not simply make the generated graphs more homogeneous in every case. Instead, both architectures can collapse toward very regular prototype families, but they do so in different ways depending on the class.
+where $p_t(G)$ is the proportion of node type $t$ in graph $G$ and $K$ is the number of node types in the dataset. Lower values mean that the graphs are more compositionally homogeneous, while higher values mean that the node types are more mixed. Figure~\ref{fig:node-entropy} shows that these entropy shifts are again class-dependent. The clearest low-entropy case is PROTEINS Non-Enzyme (class 1), where the 1-2-GNN generated graphs have much lower median entropy than both the real graphs (0.303 vs.\ 0.538) and the 1-GNN graphs (0.303 vs.\ 0.525), which matches the strongly sheet-dominated explanation family. On MUTAG Mutagen (class 1) the same pattern appears more moderately (median 0.301 for 1-2-GNN vs.\ 0.545 for 1-GNN). On MUTAG Non-Mutagen (class 0), the more notable result is that both generators are more heterogeneous than the real class (medians 0.621 and 0.677 vs.\ 0.475), not just that the 1-2-GNN sits above the 1-GNN. On PROTEINS Enzyme (class 0), both generators collapse to an almost fixed compositional template with near-zero variance in entropy (standard deviations 0.003 for 1-GNN and 0.005 for 1-2-GNN, versus 0.143 for the real graphs). So the higher-order model does not simply make the generated graphs more homogeneous in every case. Instead, both architectures can collapse toward very regular prototype families, but they do so in different ways depending on the class.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/summary/normalized_node_entropy.png}
-\caption{Graph-level normalized node-type entropy for the real training subsets and the generated datasets. Lower entropy indicates more homogeneous node-type composition within each graph. The strongest drop appears for PROTEINS Non-Enzyme (class 1) under the 1-2-GNN, while the other classes show different shifts rather than one uniform trend. Figure titles reflect the legacy inverted MUTAG/PROTEINS class names from the handler at the time of generation; the correct mapping is class 0 = Non-Mutagen / Enzyme and class 1 = Mutagen / Non-Enzyme, and the underlying numbers are unchanged.}
+\caption{Graph-level normalized node-type entropy for the real training subsets and the generated datasets. Lower entropy indicates more homogeneous node-type composition within each graph. The strongest drop appears for PROTEINS Non-Enzyme (class 1) under the 1-2-GNN, while the other classes show different shifts rather than one uniform trend. (Panel titles use the pre-fix class names; class-index positions and numbers are unchanged.)}
 \label{fig:node-entropy}
 \end{figure}
 
