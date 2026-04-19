@@ -174,10 +174,12 @@ ATOM_COLORS = {
     '?': '#808080'     # Gray (unknown)
 }
 
-# Default class names (MUTAG)
+# Default class names (MUTAG). See gin_handlers/mutag/handler.py: raw TU label
+# -1 (non-mutagenic, 63 graphs) is remapped to class 0 and +1 (mutagenic, 125
+# graphs) to class 1 by PyG's ascending-sort remap.
 CLASS_NAMES = {
-    0: 'Mutagen',
-    1: 'Non-Mutagen'
+    0: 'Non-Mutagen',
+    1: 'Mutagen'
 }
 
 
