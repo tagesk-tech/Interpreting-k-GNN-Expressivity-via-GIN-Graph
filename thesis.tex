@@ -911,19 +911,6 @@ H 11.0, S 88.9, C 0.0 \\
 \end{tabular}
 \end{table}
 
-A complementary graph-level view comes from normalized node-type entropy,
-\[
-  H_{\mathrm{norm}}(G) = \frac{-\sum_t p_t(G)\log p_t(G)}{\log K},
-\]
-where $p_t(G)$ is the proportion of node type $t$ in graph $G$ and $K$ is the number of node types in the dataset. Lower values mean that the graphs are more compositionally homogeneous, while higher values mean that the node types are more mixed. Figure~\ref{fig:node-entropy} shows that these entropy shifts are again class-dependent. The clearest low-entropy case is PROTEINS Non-Enzyme (class 1), where the 1-2-GNN generated graphs have much lower median entropy than both the real graphs (0.303 vs.\ 0.538) and the 1-GNN graphs (0.303 vs.\ 0.525), which matches the strongly sheet-dominated explanation family. On MUTAG Mutagen (class 1) the same pattern appears more moderately (median 0.301 for 1-2-GNN vs.\ 0.545 for 1-GNN). On MUTAG Non-Mutagen (class 0), the more notable result is that both generators are more heterogeneous than the real class (medians 0.621 and 0.677 vs.\ 0.475), not just that the 1-2-GNN sits above the 1-GNN. On PROTEINS Enzyme (class 0), both generators collapse to an almost fixed compositional template with near-zero variance in entropy (standard deviations 0.003 for 1-GNN and 0.005 for 1-2-GNN, versus 0.143 for the real graphs). So the higher-order model does not simply make the generated graphs more homogeneous in every case. Instead, both architectures can collapse toward very regular prototype families, but they do so in different ways depending on the class.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=\textwidth]{results/summary/normalized_node_entropy.png}
-\caption{Graph-level normalized node-type entropy for the real training subsets and the generated datasets. Lower entropy indicates more homogeneous node-type composition within each graph. The strongest drop appears for PROTEINS Non-Enzyme (class 1) under the 1-2-GNN, while the other classes show different shifts rather than one uniform trend. (Panel titles use the pre-fix class names; class-index positions and numbers are unchanged.)}
-\label{fig:node-entropy}
-\end{figure}
-
 \subsubsection{Cross-Model Classification}
 
 The most revealing analysis classifies each set of 500 generated graphs with \emph{both} k-GNN classifiers, testing whether explanations produced by one model are recognisable by the other. Table~\ref{tab:cross} reports target class agreement rates, and Figure~\ref{fig:cross_class} visualises the full classification breakdown.
@@ -1045,7 +1032,7 @@ The qualitative examples support the same interpretation. On MUTAG class 0 (Non-
 
 The second claim is more limited. The results do not support a blanket superiority statement for the 1-2-GNN, either in accuracy or in explanation quality. Instead, they show selective gains and selective failures. On MUTAG, the 1-2-GNN gives the stronger result on Mutagen (class 1): its generated node-type distribution is much closer to the real class than the 1-GNN's, and its class-1 centroid drift is also smaller. On the same dataset's Non-Mutagen class (class 0), however, the pattern reverses: the 1-2-GNN overproduces fluorine, bromine, and iodine and diverges more strongly from the real C/N/O composition than the 1-GNN.
 
-The same mixed picture appears on PROTEINS. On Enzyme (class 0), the 1-2-GNN gives the closest population-level node-type match to the real data, while the 1-GNN achieves the highest original validation score. On Non-Enzyme (class 1), the 1-2-GNN attains much higher validity (94\% vs.\ 37\%), but its embedding similarity is even lower than the 1-GNN's ($s = 0.151$ vs.\ $0.356$), its generated graphs become strongly sheet-heavy relative to the real class, and its graph-level entropy collapses markedly (Figure~\ref{fig:node-entropy}). The most defensible interpretation is therefore case-specific rather than global: higher-order message passing can yield clearer fidelity gains, but only for some classes and by some metrics.
+The same mixed picture appears on PROTEINS. On Enzyme (class 0), the 1-2-GNN gives the closest population-level node-type match to the real data, while the 1-GNN achieves the highest original validation score. On Non-Enzyme (class 1), the 1-2-GNN attains much higher validity (94\% vs.\ 37\%), but its embedding similarity is even lower than the 1-GNN's ($s = 0.151$ vs.\ $0.356$), and its generated graphs become strongly sheet-heavy relative to the real class. The most defensible interpretation is therefore case-specific rather than global: higher-order message passing can yield clearer fidelity gains, but only for some classes and by some metrics.
 
 This is why the cross-model asymmetries should be read as evidence of \emph{difference} more clearly than evidence of \emph{dominance}. The 1-2-GNN does not consistently outperform the 1-GNN across MUTAG and PROTEINS, and the 1-GNN is not simply a weaker version of the same representation. Each architecture appears to emphasise different structural cues, and those cues are more or less helpful depending on the class being modelled.
 
