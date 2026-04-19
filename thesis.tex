@@ -922,7 +922,7 @@ Reading across the four panels alongside the population composition in Table~\re
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/summary/normalized_node_entropy.png}
-\caption{Graph-level normalized node-type entropy for the real training subsets and the generated datasets. Lower entropy indicates more homogeneous node-type composition within each graph. The strongest drop appears for PROTEINS Non-Enzyme (class 1) under the 1-2-GNN (median 0.303 vs.\ 0.536 real), and PROTEINS Enzyme (class 0) shows near-zero variance for both generators ($\sigma \leq 0.005$ vs.\ real $\sigma = 0.143$), indicating collapse onto a single compositional template.}
+\caption{Graph-level normalized node-type entropy for the full real dataset split by class (n = 63, 125, 663, 450 for MUTAG Non-Mutagen, MUTAG Mutagen, PROTEINS Enzyme, PROTEINS Non-Enzyme) and the 500-graph generated datasets. Lower entropy indicates more homogeneous node-type composition within each graph. The strongest drop appears for PROTEINS Non-Enzyme (class 1) under the 1-2-GNN (median 0.303 vs.\ 0.536 real), and PROTEINS Enzyme (class 0) shows near-zero variance for both generators ($\sigma \leq 0.005$ vs.\ real $\sigma = 0.143$), indicating collapse onto a single compositional template.}
 \label{fig:node-entropy}
 \end{figure}
 
