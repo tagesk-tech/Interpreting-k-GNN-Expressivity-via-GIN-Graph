@@ -4,7 +4,7 @@ MUTAG-specific GIN handler for molecular graphs.
 
 MUTAG Dataset:
 - 188 mutagenic compounds
-- Binary classification: Mutagen (0) vs Non-Mutagen (1)
+- Binary classification: Non-Mutagen (class 0, 63 graphs) vs Mutagen (class 1, 125 graphs)
 - 7 atom types: C, N, O, F, I, Cl, Br
 - Graphs represent molecular structures
 """
@@ -50,10 +50,17 @@ class MutagHandler(DatasetHandler):
 
     @property
     def class_names(self) -> Dict[int, str]:
-        """Class names for MUTAG."""
+        """Class names for MUTAG.
+
+        The TU MUTAG raw labels are {-1, +1}; +1 is the majority class
+        (125 mutagenic compounds) and -1 is the minority (63 non-mutagenic).
+        PyG's TUDataset remaps labels by ascending sort, so raw -1 -> class 0
+        and raw +1 -> class 1. Therefore class 0 is Non-Mutagen (63 graphs)
+        and class 1 is Mutagen (125 graphs).
+        """
         return {
-            0: 'Mutagen',
-            1: 'Non-Mutagen'
+            0: 'Non-Mutagen',
+            1: 'Mutagen'
         }
 
     def plot_legend(self, save_path: str = None):

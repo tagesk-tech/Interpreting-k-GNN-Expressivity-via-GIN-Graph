@@ -4,7 +4,7 @@ PROTEINS-specific GIN handler for protein structure graphs.
 
 PROTEINS Dataset:
 - ~1113 protein structures
-- Binary classification: Enzyme (1) vs Non-Enzyme (0)
+- Binary classification: Enzyme (class 0, 663 graphs) vs Non-Enzyme (class 1, 450 graphs)
 - 3 node features representing amino acid/secondary structure properties
 - Graphs represent protein contact maps or structural relationships
 """
@@ -53,10 +53,17 @@ class ProteinsHandler(DatasetHandler):
 
     @property
     def class_names(self) -> Dict[int, str]:
-        """Class names for PROTEINS."""
+        """Class names for PROTEINS.
+
+        The TU PROTEINS raw labels are {1, 2}; raw 1 is the majority class
+        (663 enzymes) and raw 2 is the minority (450 non-enzymes).
+        PyG's TUDataset remaps labels by ascending sort, so raw 1 -> class 0
+        and raw 2 -> class 1. Therefore class 0 is Enzyme (663 graphs)
+        and class 1 is Non-Enzyme (450 graphs).
+        """
         return {
-            0: 'Non-Enzyme',
-            1: 'Enzyme'
+            0: 'Enzyme',
+            1: 'Non-Enzyme'
         }
 
     def plot_legend(self, save_path: str = None):
