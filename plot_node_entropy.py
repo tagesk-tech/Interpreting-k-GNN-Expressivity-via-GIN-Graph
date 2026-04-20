@@ -5,9 +5,11 @@ This script treats each set of generated graphs as a synthetic class-conditional
 dataset and compares its per-graph node-type entropy to the full real dataset
 split by class.
 
-Real-class entropies are computed directly from the raw TU files under
-``data/{DATASET}/raw/`` so the script has no torch / torch_geometric dependency
-and always reproduces the same numbers regardless of the PyG split logic.
+Real-class entropies are computed directly from the raw TU files under a local
+``data/{DATASET}/raw/`` directory, so the script has no torch /
+torch_geometric dependency and always reproduces the same numbers regardless of
+the PyG split logic. The raw TU files are not vendored in this repository, so
+you must provide them either under ``./data`` or via ``--data_dir``.
 The mapping from raw TU labels to PyG class indices follows ``torch.unique``
 ascending order, matching PyG's ``TUDataset`` behaviour:
 
@@ -62,12 +64,26 @@ def load_real_graph_entropies(dataset_name: str, data_root: str) -> Dict[int, np
     PyG class index (ascending-sort remap from raw labels)."""
     raw_dir = os.path.join(data_root, dataset_name.upper(), "raw")
     prefix = dataset_name.upper()
+    required_files = {
+        "graph labels": os.path.join(raw_dir, f"{prefix}_graph_labels.txt"),
+        "graph indicator": os.path.join(raw_dir, f"{prefix}_graph_indicator.txt"),
+        "node labels": os.path.join(raw_dir, f"{prefix}_node_labels.txt"),
+    }
+    missing = [f"{label}: {path}" for label, path in required_files.items() if not os.path.exists(path)]
+    if missing:
+        raise FileNotFoundError(
+            "Missing raw TU files for "
+            f"{dataset_name.upper()} under {raw_dir}. "
+            "This repository does not include the raw datasets; place them under "
+            f"{data_root} or pass --data_dir to an existing TU data checkout.\n"
+            + "\n".join(missing)
+        )
 
-    with open(os.path.join(raw_dir, f"{prefix}_graph_labels.txt")) as f:
+    with open(required_files["graph labels"]) as f:
         raw_labels = [int(line.strip()) for line in f if line.strip()]
-    with open(os.path.join(raw_dir, f"{prefix}_graph_indicator.txt")) as f:
+    with open(required_files["graph indicator"]) as f:
         graph_ids = [int(line.strip()) for line in f if line.strip()]
-    with open(os.path.join(raw_dir, f"{prefix}_node_labels.txt")) as f:
+    with open(required_files["node labels"]) as f:
         node_labels = [int(line.strip()) for line in f if line.strip()]
 
     unique_sorted = sorted(set(raw_labels))
@@ -121,7 +137,10 @@ def main():
     parser.add_argument(
         "--data_dir",
         default="./data",
-        help="Directory containing raw TU dataset folders",
+        help=(
+            "Directory containing raw TU dataset folders "
+            "(the repository does not include these raw files)"
+        ),
     )
     parser.add_argument(
         "--results_dir",
