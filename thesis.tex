@@ -482,7 +482,7 @@ The dense wrapper preserves the exact mathematical behaviour of the pretrained c
 \subsection{Validation Score}
 \label{sec:validation}
 
-At evaluation time, both the generator and the classifier are frozen; no gradients are computed. We sample 100 graphs per class at temperature $\tau = 0.1$ (which produces sharper, more discrete outputs than the training temperature of $\tau = 1.0$) and assign each graph a score that quantifies its quality as an explanation. The score must be low if the graph fails on any of three axes (class identity, internal representation, or structural plausibility), so that success on one axis cannot compensate for failure on another.
+At evaluation time, both the generator and the classifier are frozen; no gradients are computed. We sample 100 graphs per class (50 for MUTAG 1-GNN Non-Mutagen) at temperature $\tau = 0.1$ (which produces sharper, more discrete outputs than the training temperature of $\tau = 1.0$) and assign each graph a score that quantifies its quality as an explanation. The score must be low if the graph fails on any of three axes (class identity, internal representation, or structural plausibility), so that success on one axis cannot compensate for failure on another.
 
 The composite validation score~\cite{sun2025gingraph} is:
 \begin{equation}
@@ -551,7 +551,7 @@ In these experiments, $\kappa \approx 0$ for all configurations. This is a struc
 
 \subsubsection{Evaluation Protocol}
 
-Each configuration generates 100 graphs and reports: (i) the validity rate, the fraction passing both the $v > 0.5$ and the 3$\sigma$ degree conditions; (ii) the mean validation score, averaged across all 100 graphs; (iii) the component decomposition $s$, $p$, $d$ (Table~\ref{tab:decomposition}), where patterns such as high $p$ with low $s$ on PROTEINS Enzyme would not appear under the $s = p$ proxy; and (iv) the top-ranked explanations sorted by $v$, shown in the figures. All four quantities are forward-pass computations on frozen networks. No training or gradients are involved.
+Each configuration generates 100 graphs (50 for MUTAG 1-GNN Non-Mutagen) and reports: (i) the validity rate, the fraction passing both the $v > 0.5$ and the 3$\sigma$ degree conditions; (ii) the mean validation score, averaged across all generated graphs; (iii) the component decomposition $s$, $p$, $d$ (Table~\ref{tab:decomposition}), where patterns such as high $p$ with low $s$ on PROTEINS Enzyme would not appear under the $s = p$ proxy; and (iv) the top-ranked explanations sorted by $v$, shown in the figures. All four quantities are forward-pass computations on frozen networks. No training or gradients are involved.
 
 % ============================================================
 % 4. Experimental Setup
@@ -612,10 +612,10 @@ PROTEINS & 1-2-GNN & 2214 ($326\times$) & 1.43 ($36\times$) \\
 
 \subsection{Evaluation Protocol}
 
-For each model-dataset-class combination, we generate 100 explanation graphs at evaluation temperature $\tau = 0.1$ and evaluate them using the validation score (Equation~\ref{eq:validation}). We report:
+For each model-dataset-class combination, we generate 100 explanation graphs (50 for MUTAG 1-GNN Non-Mutagen) at evaluation temperature $\tau = 0.1$ and evaluate them using the validation score (Equation~\ref{eq:validation}). We report:
 \begin{itemize}[nosep]
   \item \textbf{Validity rate}: fraction of explanations passing degree and score thresholds;
-  \item \textbf{Mean validation score}: averaged over all 100 generated graphs;
+  \item \textbf{Mean validation score}: averaged over all generated graphs;
   \item \textbf{Component scores}: embedding similarity ($s$), prediction probability ($p$), degree score ($d$);
   \item \textbf{Granularity}: how fine-grained the explanations are.
 \end{itemize}
