@@ -178,7 +178,7 @@ Usage:
 from gin_handlers import get_handler
 handler = get_handler('proteins')  # or 'mutag', 'dd'
 handler.plot_explanation_graph(adj, x, ax=ax)
-handler.class_names  # {0: 'Non-Enzyme', 1: 'Enzyme'}
+handler.class_names  # {0: 'Enzyme', 1: 'Non-Enzyme'}  # PyG ascending-sort remap of raw TU labels 1, 2
 ```
 
 ### Configuration
