@@ -621,14 +621,7 @@ PROTEINS & 1-2-GNN & 49{,}858 & 73.1\% & 78.9\% & 75 \\
 
 \subsubsection{Generator training convergence}
 
-Figure~\ref{fig:training} shows a representative training curve for one of the four generators (MUTAG, 1-2-GNN, class 1). The three losses follow the expected pattern: during the first $\sim$120 epochs ($\lambda \approx 0$), the WGAN-GP losses dominate while the GNN guidance loss is inactive; as the dynamic weighting $\lambda(t)$ rises (Equation~\ref{eq:lambda}), the GNN loss decreases sharply and the adversarial losses plateau. All four generators reach the 300-epoch horizon without divergence on both datasets.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.9\textwidth]{results/mutag/12gnn_class1/figures/training.png}
-\caption{Training curves for one GIN-Graph run (MUTAG, 1-2-GNN, class 1). Generator loss, discriminator loss, and GNN guidance loss over 300 epochs. The dynamic weighting $\lambda(t)$ shifts emphasis from adversarial realism (early) to class-specific guidance (late).}
-\label{fig:training}
-\end{figure}
+All four generators reached the 300-epoch horizon without divergence on both datasets.
 
 \subsubsection{Validation-score component sanity}
 
