@@ -934,15 +934,9 @@ Several limitations qualify the findings:
 
 \subsection{Future Work}
 
-Several directions could strengthen this investigation:
-\begin{itemize}[nosep]
-  \item \textbf{Higher-order--aware generator.} The most impactful extension would be a generator architecture designed for $k$-GNN classifiers. Rather than outputting only adjacency and node features, such a generator could directly produce pair-level (or $k$-set--level) features, or use higher-order message passing internally so that it ``thinks'' in the same representation space as the classifier. This would disentangle the question of whether the 1-2-GNN learns richer structural patterns from the confound of generator--classifier mismatch identified in our limitations.
-  \item Use cross-validation and multiple random seeds for robust accuracy and explanation quality estimates. The current single-seed results, while consistent across configurations, may not generalise.
-  \item Investigate \emph{why} the 1-GNN and 1-2-GNN learn different class representations---e.g., which specific pairwise patterns drive the 1-2-GNN's more selective Non-Enzyme boundary---using attention or gradient-based attribution on the 2-GNN component.
-  \item Extend to the 1-2-3-GNN architecture, which adds 3-set (triplet) message passing for even higher expressiveness, to test whether the interpretability benefit continues up the $k$-WL hierarchy.
-  \item Incorporate richer structural evaluation metrics beyond average degree, such as clustering coefficients, motif frequencies, or subgraph counts, to better capture the qualitative differences between generated explanations.
-  \item Apply the framework to larger and more diverse datasets where the expressiveness gap between 1-WL and higher-order tests is more pronounced.
-\end{itemize}
+A natural extension is a higher-order--aware generator. The output-space mismatch identified in Section~\ref{sec:limitations} means the current generator influences pair-level representations only indirectly, through its edge and node choices. A generator that produces pair-level (or more generally $k$-set--level) features directly would remove this indirect path and allow a cleaner test of what a 1-2-GNN classifier has encoded, rather than what an unaware generator can coax out of it.
+
+A second direction is extending the comparison to a 1-2-3-GNN, which adds 3-set message passing on top of node- and pair-level passes. This would test whether the kind of architecture-specific divergence observed here continues up the $k$-WL hierarchy, or whether it is a feature of the 1-to-2 step alone. The question is one of generality, not an expectation that a larger $k$ produces better explanations.
 
 % ============================================================
 % 7. Conclusion
