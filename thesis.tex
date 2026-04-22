@@ -149,75 +149,75 @@ where $\mathbf{W}_c \in \mathbb{R}^{d_T \times d_T}$ and $\mathbf{W}_o \in \math
 \subsection{2-GNN and the Hierarchical 1-2-GNN}
 \label{sec:2gnn}
 
-The 2-GNN operates on 2-sets (unordered node pairs) rather than individual nodes. For each pair $s = \{u, v\}$ with $u < v$ (canonical ordering), the initial feature vector incorporates the 1-GNN embeddings of both nodes and an \emph{isomorphism type} indicator:
+A 1-GNN aggregates only over individual node neighbourhoods, and two graphs in which every node has the same local signature are therefore indistinguishable to it. The canonical instance is two disjoint triangles compared with a single hexagon: every node has degree two with two degree-two neighbours, so the aggregated node features coincide in both graphs. Representing the graph at the level of node pairs restores the missing structural signal, because a pair carries information about whether its two elements are adjacent and about the neighbourhoods of both elements simultaneously.
+
+A pair feature is a fixed-dimensional vector attached to each unordered node pair that summarises the pair together with an indicator of its edge status in the original graph. For each pair $s = \{u, v\}$ with canonical ordering $u < v$, the initial pair feature is built from the two 1-GNN node embeddings together with the edge indicator:
 \begin{equation}
   \mathbf{f}_s^{(0)} = \left[\mathbf{h}_u^{(T)} \;\|\; \mathbf{h}_v^{(T)} \;\|\; \mathbb{1}[(u,v) \in E]\right] \in \mathbb{R}^{2d_T + 1},
   \label{eq:2set-feat}
 \end{equation}
-where $\|$ denotes vector concatenation. The isomorphism type $\mathbb{1}[(u,v) \in E] \in \{0, 1\}$ indicates whether $u$ and $v$ are connected by an edge. This allows the 2-GNN to distinguish between pairs of connected nodes and pairs of unconnected nodes, a distinction that carries structural meaning (e.g., in a molecule, bonded vs.\ non-bonded atom pairs).
+The concatenation of $\mathbf{h}_u^{(T)}$ and $\mathbf{h}_v^{(T)}$ carries the node-level context from the 1-GNN, and the bond bit $\mathbb{1}[(u,v)\in E] \in \{0,1\}$ acts as the isomorphism-type marker for the pair, distinguishing bonded pairs from unbonded pairs that would otherwise share the same node-level content.
 
-Message passing on 2-sets uses a local neighbourhood in which each neighbour of a pair is obtained by replacing exactly one of its elements with a node adjacent (in the original graph) to the removed one. For a 2-set $s = \{u, v\}$, this neighbourhood decomposes into two cases:
+Message passing on pairs uses a neighbourhood in which each neighbour of $s = \{u,v\}$ is obtained by replacing one of its two elements with a node adjacent in $G$ to the removed element:
 \begin{equation}
-  \mathcal{N}_L(\{u, v\}) = \underbrace{\left\{\{v, w\} : w \neq u,\; (u, w) \in E\right\}}_{\text{Case 1: replace } u \text{ with } w} \cup \underbrace{\left\{\{u, w\} : w \neq v,\; (v, w) \in E\right\}}_{\text{Case 2: replace } v \text{ with } w}.
+  \mathcal{N}_L(\{u, v\}) = \left\{\{v, w\} : w \neq u,\; (u, w) \in E\right\} \cup \left\{\{u, w\} : w \neq v,\; (v, w) \in E\right\}.
   \label{eq:2set-nbr}
 \end{equation}
-In Case 1, we remove $u$ from the pair and add a new node $w$ that must be adjacent to $u$ in the original graph. In Case 2, we remove $v$ and add $w$ adjacent to $v$. This ensures that neighbourhood relationships in the 2-GNN reflect the edge structure of the underlying graph.
+The first set replaces $u$ by a node $w$ adjacent to $u$ in $G$; the second replaces $v$ by a node $w$ adjacent to $v$ in $G$. The neighbourhood relation among pairs therefore inherits its structure from the edge structure of the underlying graph.
 
-The 2-GNN layer update rule mirrors the 1-GNN structure:
+The pair-level update combines the pair's own features with an aggregation over its pair-neighbourhood through two weight matrices:
 \begin{equation}
   \mathbf{f}_s^{(\ell+1)} = \sigma\!\left(\mathbf{f}_s^{(\ell)} \mathbf{W}_3^{(\ell)} + \sum_{s' \in \mathcal{N}_L(s)} \mathbf{f}_{s'}^{(\ell)} \mathbf{W}_4^{(\ell)}\right),
   \label{eq:2gnn-update}
 \end{equation}
-where $\mathbf{W}_3^{(\ell)}, \mathbf{W}_4^{(\ell)}$ are the 2-GNN weight matrices at layer $\ell$. We apply $T_2 = 2$ layers.
+The self-transformation $\mathbf{W}_3^{(\ell)}$ preserves the pair's own representation across layers, and the neighbour-transformation $\mathbf{W}_4^{(\ell)}$ propagates information from adjacent pairs. The 2-GNN uses $T_2 = 2$ such layers.
 
-The \textbf{hierarchical 1-2-GNN} combines both levels. It first runs the 1-GNN (Equation~\ref{eq:1gnn}) for $T_1 = 3$ layers to obtain node embeddings, then uses these embeddings to initialise 2-GNN features (Equation~\ref{eq:2set-feat}), and runs $T_2 = 2$ layers of 2-GNN message passing. The final graph representation concatenates both readouts:
+The hierarchical 1-2-GNN runs the 1-GNN first for $T_1 = 3$ layers to obtain node embeddings, uses these embeddings to form the initial pair features via Equation~\eqref{eq:2set-feat}, and then runs $T_2$ layers of pair-level message passing. The graph representation is the concatenation of a node-level and a pair-level readout:
 \begin{equation}
   \mathbf{h}_G = \left[\mathbf{h}_G^{(1)} \;\|\; \mathbf{h}_G^{(2)}\right] \in \mathbb{R}^{2d_T},
   \label{eq:12gnn-readout}
 \end{equation}
-where the 1-GNN readout is $\mathbf{h}_G^{(1)} = \sum_{v \in V} \mathbf{h}_v^{(T_1)}$ and the 2-GNN readout pools over all pairs:
+The node-level readout sums the final node embeddings, $\mathbf{h}_G^{(1)} = \sum_{v \in V} \mathbf{h}_v^{(T_1)}$, and the pair-level readout sums the final pair features:
 \begin{equation}
   \mathbf{h}_G^{(2)} = \sum_{\{u,v\} \in \binom{V}{2}} \mathbf{f}_{\{u,v\}}^{(T_2)} \in \mathbb{R}^{d_T}.
   \label{eq:2gnn-readout}
 \end{equation}
-The concatenated embedding $\mathbf{h}_G$ is then fed through the same classifier structure as Equation~\eqref{eq:classifier}, but with input dimension $2d_T$ instead of $d_T$.
+The concatenated embedding $\mathbf{h}_G$ is passed through the classifier of Equation~\eqref{eq:classifier} with input dimension $2d_T$ in place of $d_T$.
 
-\textbf{Scalability.} The number of 2-sets grows as $\binom{n}{2} = \frac{n(n-1)}{2}$, which becomes prohibitive for large graphs. For PROTEINS (up to 620 nodes, yielding up to 191,890 pairs), we process all pairs using a numba-accelerated sparse kernel with CSR adjacency representation, achieving efficient $O(\text{degree})$ neighbour lookup instead of $O(N)$ dense masks. This enables exact computation over the full pairwise structure without sampling.
+\textbf{Scalability.} The number of pairs grows as $\binom{n}{2} = n(n-1)/2$, which becomes prohibitive for large graphs. For PROTEINS (up to 620 nodes, yielding up to 191{,}890 pairs), all pairs are processed using a numba-accelerated sparse kernel with a CSR adjacency representation, giving $O(\text{degree})$ neighbour lookup instead of the $O(N)$ cost of dense masks. The full pairwise structure is therefore computed exactly, without sampling.
 
 \subsection{GIN-Graph Generator}
 \label{sec:generator}
 
-The generator $\mathcal{G}$ maps a latent noise vector $\mathbf{z} \in \mathbb{R}^{d_z}$ to a graph $(\tilde{A}, \tilde{X})$ through a backbone MLP followed by separate output heads:
+\textbf{MLP backbone.} The generator $\mathcal{G}$ maps a latent noise vector to a graph through a shared two-layer MLP backbone with two output heads, one producing adjacency logits and one producing node-feature logits:
 \begin{align}
   \mathbf{h} &= \text{LeakyReLU}\!\left(\mathbf{W}_2\,\text{LeakyReLU}(\mathbf{W}_1 \mathbf{z})\right) \in \mathbb{R}^{2d_h}, \label{eq:gen-backbone} \\
   \tilde{A}_{\text{raw}} &= \text{sym}\!\left(\text{reshape}(\mathbf{h}\,\mathbf{W}_A,\; N \times N)\right), \label{eq:gen-adj-raw} \\
-  \tilde{X}_{\text{raw}} &= \text{reshape}(\mathbf{h}\,\mathbf{W}_X,\; N \times D), \label{eq:gen-feat-raw}
+  \tilde{X}_{\text{raw}} &= \text{reshape}(\mathbf{h}\,\mathbf{W}_X,\; N \times D). \label{eq:gen-feat-raw}
 \end{align}
-where $d_z = 32$ is the latent dimension, $d_h = 128$ is the hidden dimension, $N$ is the maximum number of nodes, $D$ is the number of node feature types, and $\text{sym}(\mathbf{M}) = \frac{1}{2}(\mathbf{M} + \mathbf{M}^\top)$ ensures the adjacency logits are symmetric (undirected graphs).
+The latent vector $\mathbf{z} \in \mathbb{R}^{d_z}$ is drawn from a standard normal, with $d_z = 32$ and hidden width $d_h = 128$. The adjacency head produces an $N \times N$ matrix, where $N$ is the maximum number of nodes in the generated graph, and the feature head produces an $N \times D$ matrix, where $D$ is the number of node feature types in the target dataset. The symmetrisation $\text{sym}(\mathbf{M}) = \tfrac{1}{2}(\mathbf{M} + \mathbf{M}^\top)$ enforces undirected adjacency. The outputs of Equations~\eqref{eq:gen-adj-raw}--\eqref{eq:gen-feat-raw} are real-valued logits, not yet a graph; a discrete graph is obtained in the following step.
 
-\textbf{Gumbel-Softmax.} Graphs are inherently discrete objects: edges are either present or absent, and node types are categorical. Standard gradient-based optimisation cannot backpropagate through discrete sampling. The Gumbel-Softmax trick~\cite{jang2017categorical} provides a differentiable relaxation.
-
-For a categorical distribution with unnormalised log-probabilities (logits) $\pi_1, \ldots, \pi_K$, the Gumbel-Softmax sample is:
+\textbf{Gumbel-Softmax sampling.} The quantities the generator must produce are discrete: each edge is binary, and each node type is a choice among $D$ categories. Selecting these by $\arg\max$ or by thresholding would make the mapping from logits to outputs piecewise constant, with zero gradient almost everywhere. The Gumbel-Softmax trick~\cite{jang2017categorical} replaces this hard sampling step with a differentiable relaxation. For unnormalised log-probabilities $\pi_1, \ldots, \pi_K$, a Gumbel-Softmax sample is defined as
 \begin{equation}
-  y_i = \frac{\exp\!\left((\pi_i + g_i) / \tau\right)}{\sum_{j=1}^{K} \exp\!\left((\pi_j + g_j) / \tau\right)}, \quad g_i = -\log(-\log(u_i)), \quad u_i \sim \text{Uniform}(0,1),
+  y_i = \frac{\exp\!\left((\pi_i + g_i) / \tau\right)}{\sum_{j=1}^{K} \exp\!\left((\pi_j + g_j) / \tau\right)}, \quad g_i = -\log(-\log(u_i)), \quad u_i \sim \text{Uniform}(0,1).
   \label{eq:gumbel}
 \end{equation}
-where $\tau > 0$ is a temperature parameter. As $\tau \to 0$, the output approaches a one-hot vector (hard categorical sample); as $\tau \to \infty$, it approaches a uniform distribution. During training, we use the \emph{straight-through estimator}: the forward pass produces hard (discrete) samples via $\arg\max$, but the backward pass uses the continuous Gumbel-Softmax gradients. This gives the generator discrete outputs while maintaining gradient flow.
+The Gumbel samples $g_i$ carry all of the stochasticity in this expression; the logits $\pi_i$ enter only through deterministic operations. Gradients with respect to $\pi_i$ therefore propagate through Equation~\eqref{eq:gumbel}. The temperature $\tau > 0$ controls sharpness: as $\tau \to 0$ the softmax approaches a one-hot vector, and as $\tau \to \infty$ it approaches the uniform distribution.
 
-For the \textbf{adjacency matrix}, each potential edge $(i,j)$ is a binary choice (edge/no-edge). We construct 2-class logits $[\tilde{A}_{\text{raw}}[i,j],\; -\tilde{A}_{\text{raw}}[i,j]]$ and apply Gumbel-Softmax with $K=2$. To guarantee symmetry ($\tilde{A}_{ij} = \tilde{A}_{ji}$), we sample only the upper triangle and mirror it:
+\textbf{Straight-through estimator.} The classifier used to guide the generator was trained on discrete graphs with $\{0,1\}$ adjacency and one-hot node features, and it is not meaningful to feed it continuous Gumbel-Softmax outputs at training time. The straight-through estimator resolves this by combining a hard forward pass with a soft backward pass: the hard one-hot sample $\tilde{y}_\text{hard} = \text{onehot}(\arg\max_i y_i)$ is used in the forward computation, while the gradient is taken with respect to the continuous sample $\tilde{y}_\text{soft}$ from Equation~\eqref{eq:gumbel}. The standard implementation uses the identity $\tilde{y} = \tilde{y}_\text{hard} + \tilde{y}_\text{soft} - \text{stopgrad}(\tilde{y}_\text{soft})$, whose value equals $\tilde{y}_\text{hard}$ but whose gradient equals that of $\tilde{y}_\text{soft}$.
+
+\textbf{Application to the two heads.} Each potential edge $(i,j)$ is a binary choice between edge and no-edge, so 2-class logits $[\tilde{A}_{\text{raw}}[i,j],\; -\tilde{A}_{\text{raw}}[i,j]]$ are formed and passed through the Gumbel-Softmax with $K = 2$. Symmetry of the output adjacency is enforced by sampling only the upper triangle and mirroring it to the lower triangle:
 \begin{equation}
   \tilde{A}_{\text{upper}} = \text{triu}(\text{GumbelSoftmax}(\tilde{A}_{\text{raw}}, \tau)), \quad
   \tilde{A} = \tilde{A}_{\text{upper}} + \tilde{A}_{\text{upper}}^\top.
   \label{eq:adj-symmetry}
 \end{equation}
-
-For \textbf{node features}, each node has $D$ possible types (e.g., 7 atom types for MUTAG). We apply Gumbel-Softmax with $K=D$ to produce one-hot feature vectors:
+For node features, each node selects one of $D$ types (for example, seven atom types on MUTAG), so the Gumbel-Softmax is applied with $K = D$ per node to obtain one-hot feature rows:
 \begin{equation}
   \tilde{X}[v,:] = \text{GumbelSoftmax}(\tilde{X}_{\text{raw}}[v,:],\; \tau) \in \{0,1\}^D.
   \label{eq:feat-gumbel}
 \end{equation}
-
-The temperature $\tau = 1.0$ during training (allowing exploration) and $\tau = 0.1$ during evaluation (producing sharper, more discrete outputs).
+The temperature is $\tau = 1.0$ during training, which leaves the relaxation smooth enough to give useful gradients, and $\tau = 0.1$ during evaluation, which produces sharper, effectively discrete outputs.
 
 \subsection{Training Objective}
 \label{sec:training}
