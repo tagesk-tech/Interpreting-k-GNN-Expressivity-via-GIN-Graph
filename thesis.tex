@@ -317,9 +317,9 @@ where $p_\Phi(y = c \mid \tilde{G})$ is the softmax probability that the pretrai
 
 \subsubsection{$\lambda(t)$: Dynamic Weighting}
 
-The balance parameter $\lambda(t)$ in Equation~\eqref{eq:total-loss} follows a sigmoid schedule~\cite{sun2025gingraph}:
+The balance parameter $\lambda(t)$ in Equation~\eqref{eq:total-loss} follows a sigmoid schedule~\cite{sun2025gingraph}. The general form in Sun et al.\ is an affine map from a sigmoid output into an arbitrary range $[\lambda_{\min}, \lambda_{\max}]$; the full range $[0, 1]$ is used here, so the floor and ceiling drop out and the schedule reduces to
 \begin{equation}
-  \lambda(t) = \lambda_{\min} + (\lambda_{\max} - \lambda_{\min}) \cdot \sigma\!\left(k \cdot \left(\frac{2(t/T - p)}{1-p} - 1\right)\right),
+  \lambda(t) = \sigma\!\left(k \cdot \left(\frac{2(t/T - p)}{1-p} - 1\right)\right),
   \label{eq:lambda}
 \end{equation}
 where $T$ is the total number of training iterations ($T = 300$ epochs in our experiments), $p = 0.4$ is the fraction of training before $\lambda$ begins increasing, $k = 10$ controls the steepness of the transition, and $\sigma(x) = 1/(1 + e^{-x})$ is the logistic sigmoid.
@@ -581,7 +581,7 @@ PROTEINS & 1113 & 3 (sec.\ str.) & 620 & 50 & Enzyme / non-enzyme \\
 
 All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers; the 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) for 100 epochs with cross-entropy loss. Data is split 80/20 into train/test with a fixed seed of 42.
 
-The GIN-Graph generator uses a latent dimension $d_z = 32$, hidden dimension $d_h = 128$, and is trained for 300 epochs with Adam (lr = 0.001) and batch size 64. WGAN-GP uses $\lambda_{\text{GP}} = 10$ and trains the discriminator once per generator update ($n_{\text{critic}} = 1$). The dynamic weighting uses $p = 0.4$, $k = 10$, $\lambda_{\min} = 0$, $\lambda_{\max} = 1$. The generation size is fixed at $N = 28$ for MUTAG and $N = 50$ for PROTEINS.
+The GIN-Graph generator uses a latent dimension $d_z = 32$, hidden dimension $d_h = 128$, and is trained for 300 epochs with Adam (lr = 0.001) and batch size 64. WGAN-GP uses $\lambda_{\text{GP}} = 10$ and trains the discriminator once per generator update ($n_{\text{critic}} = 1$). The dynamic weighting uses $p = 0.4$ and $k = 10$ (Equation~\ref{eq:lambda}). The generation size is fixed at $N = 28$ for MUTAG and $N = 50$ for PROTEINS.
 
 \subsection{Evaluation Protocol}
 
