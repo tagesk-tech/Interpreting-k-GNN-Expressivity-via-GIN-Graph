@@ -237,7 +237,7 @@ The total generator loss combines adversarial, GNN-guidance, and structural regu
 \end{equation}
 where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training, and $\mathcal{L}_{\text{reg}}$ comprises structural regularisation losses described below. The three terms correspond to three goals: making the generated graphs look realistic ($\mathcal{L}_{\text{GAN}}$), making them belong to the target class ($\mathcal{L}_{\text{GNN}}$), and making them the right size and composition ($\mathcal{L}_{\text{reg}}$). We now explain each in turn, beginning with the adversarial component and the discriminator that drives it.
 
-\subsubsection{The Discriminator}
+\subsubsection{$\mathcal{L}_{\text{GAN}}$: The Discriminator}
 
 The discriminator $\mathcal{D}$ is a graph neural network that maps a graph to a single scalar. It operates on dense batched inputs (node features $\mathbf{X} \in \mathbb{R}^{B \times N \times D}$ and adjacency $\mathbf{A} \in [0,1]^{B \times N \times N}$) so that the same forward pass handles both real and generated graphs. The architecture has three stages:
 
@@ -251,7 +251,7 @@ Higher values of $\mathcal{D}(G)$ indicate that the graph appears real; lower va
 
 The discriminator is distinct from the pretrained $k$-GNN classifier $\Phi$ used in $\mathcal{L}_{\text{GNN}}$: $\mathcal{D}$ is trained from scratch during GIN-Graph training and scores graphs on realism, while $\Phi$ is frozen and scores graphs on class membership.
 
-\subsubsection{The Two-Player Setup}
+\subsubsection{$\mathcal{L}_{\text{GAN}}$: The Two-Player Setup}
 
 The generator $\mathcal{G}$ and the discriminator $\mathcal{D}$ are trained in alternating steps:
 
@@ -262,7 +262,7 @@ The generator $\mathcal{G}$ and the discriminator $\mathcal{D}$ are trained in a
 
 Neither network is trained to convergence; they co-evolve. In each training step, the discriminator updates once, then the generator updates once ($n_{\text{critic}} = 1$). This alternation is necessary. If $\mathcal{D}$ were trained to convergence against a fixed generator, its output would be correct (low on all generated graphs, high on all real graphs) but uninformative as a gradient signal: the generated region of input space would become flat, so small changes to a generated graph would not change $\mathcal{D}$'s score, and the generator would receive no direction for improvement. Keeping $\mathcal{D}$ partially trained ensures that its scores still vary across the region where the generator's current outputs lie.
 
-\subsubsection{Discriminator Loss}
+\subsubsection{$\mathcal{L}_D$: Discriminator Loss}
 
 With the setup in place, we can state the discriminator loss. In each training step, we draw a batch of $B = 64$ real graphs $G$ from the training set and a batch of $B$ fake graphs $\tilde{G}$ from the generator. The discriminator minimises:
 \begin{equation}
@@ -278,7 +278,7 @@ where each expectation $\mathbb{E}[\cdot]$ is in practice the average over one b
 
 Together, these two terms encode one instruction: push real scores up, push generated scores down. The third term, the gradient penalty, is a stability device explained below.
 
-\subsubsection{Generator Loss}
+\subsubsection{$\mathcal{L}_{\text{GAN}}$: Generator Loss}
 
 The generator's adversarial loss is the negation of the discriminator's ``score on fake'' term:
 \begin{equation}
@@ -290,7 +290,7 @@ The generator wants to maximise the score the discriminator assigns to its outpu
 
 Real graphs do not appear in $\mathcal{L}_{\text{GAN}}$. The generator never sees real data directly. It learns about the real distribution only through the gradient signal from $\mathcal{D}$: real graphs train $\mathcal{D}$, and $\mathcal{D}$'s gradient informs the generator how to adjust its outputs. This indirect chain, from real data to $\mathcal{D}$'s parameters to $\mathcal{D}$'s gradient to the generator's parameters, is the core mechanism of GANs.
 
-\subsubsection{Why WGAN-GP and Not a Vanilla GAN}
+\subsubsection{$\mathcal{L}_{\text{GAN}}$: Why WGAN-GP and Not a Vanilla GAN}
 
 In a vanilla GAN, the discriminator ends in a sigmoid, so its output is a value in $[0, 1]$ interpreted as the probability of the input being real. The problem is gradient saturation. Once $\mathcal{D}$ can reliably separate real from generated graphs, the sigmoid output for generated graphs is pushed toward 0. The derivative of the sigmoid $\sigma(x) = 1/(1+e^{-x})$ is $\sigma(x)(1 - \sigma(x))$, which approaches zero when $\sigma(x) \approx 0$ or $\sigma(x) \approx 1$. The generator's weight updates are computed via the chain rule as a product of derivatives, one of which is this sigmoid derivative. A near-zero factor makes the entire product near-zero, and the generator stops learning. This is the core difficulty of vanilla GAN training.
 
@@ -306,7 +306,7 @@ This constraint has two effects. First, $\mathcal{D}$ cannot reduce its loss by 
 
 In summary: a vanilla GAN's sigmoid saturates when $\mathcal{D}$ is confident, killing the generator's gradient. WGAN-GP removes the sigmoid and adds a gradient penalty that keeps the gradient magnitude near 1. The generator therefore receives a non-degenerate learning signal regardless of $\mathcal{D}$'s strength.
 
-\subsubsection{GNN Guidance Loss}
+\subsubsection{$\mathcal{L}_{\text{GNN}}$: GNN Guidance Loss}
 
 The adversarial loss enforces structural realism but does not steer generation toward any particular class. The GNN guidance loss maximises the pretrained classifier's confidence on the target class $c$:
 \begin{equation}
@@ -315,7 +315,7 @@ The adversarial loss enforces structural realism but does not steer generation t
 \end{equation}
 where $p_\Phi(y = c \mid \tilde{G})$ is the softmax probability that the pretrained $k$-GNN $\Phi$ assigns to class $c$ for the generated graph $\tilde{G}$. This is the negative log-likelihood of the target class. The classifier's weights are frozen; only the generator's weights are updated. Minimising $\mathcal{L}_{\text{GNN}}$ pushes the generator to produce graphs that the classifier assigns to class $c$.
 
-\subsubsection{Dynamic Weighting}
+\subsubsection{$\lambda(t)$: Dynamic Weighting}
 
 The balance parameter $\lambda(t)$ in Equation~\eqref{eq:total-loss} follows a sigmoid schedule~\cite{sun2025gingraph}:
 \begin{equation}
@@ -326,7 +326,7 @@ where $T$ is the total number of training iterations ($T = 300$ epochs in our ex
 
 When $t \ll pT$ (the first $\sim$120 epochs), the sigmoid argument is strongly negative, giving $\lambda(t) \approx 0$: the total loss is $\mathcal{L}_G \approx \mathcal{L}_{\text{GAN}}$, and the generator focuses on producing structurally realistic graphs without class-specific pressure. As $t$ passes $pT$, $\lambda(t)$ increases toward 1: the total loss shifts to $\mathcal{L}_G \approx \mathcal{L}_{\text{GNN}}$, directing the generator toward class-specific patterns. Without this schedule, the generator collapses to structurally degenerate graphs that satisfy the classifier but bear no resemblance to real data, since $\mathcal{L}_{\text{GNN}}$ can be minimised by any graph that triggers the correct class output, regardless of structural plausibility.
 
-\subsubsection{Structural Regularisation}
+\subsubsection{$\mathcal{L}_{\text{reg}}$: Structural Regularisation}
 
 The generator outputs a fixed-size $N \times N$ adjacency matrix and $N \times D$ feature matrix ($N = 28$ for MUTAG, $N = 50$ for PROTEINS). Without explicit constraints, the Gumbel-Softmax sampling activates most slots and settles on atom-type distributions that satisfy the classifier but do not resemble real class members. $\mathcal{L}_{\text{GAN}}$ constrains these statistics only indirectly through the discriminator, and the signal is too weak to prevent these failures. The regularisation term $\mathcal{L}_{\text{reg}}$ supplies direct supervision on two graph-level statistics: graph size and atom-type frequencies. Both targets are precomputed once from the real training set and remain fixed during training.
 
