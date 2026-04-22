@@ -401,37 +401,22 @@ $\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss comp
 \subsection{Dense Wrapper for Differentiable $k$-GNN Inference}
 \label{sec:dense-wrapper}
 
-This section explains why the pretrained classifier cannot be used directly inside the generator's training loop, and how we solve this. The 1-GNN dense wrapper is taken from GIN-Graph~\cite{sun2025gingraph}; the same logic is applied to the 2-GNN branch of the 1-2-GNN classifier.
+The pretrained classifier cannot be used directly inside the generator's training loop. This section explains why, and how we fix it. The 1-GNN dense wrapper is taken from GIN-Graph~\cite{sun2025gingraph}; the same logic is applied to the 2-GNN branch of the 1-2-GNN classifier in Section~\ref{sec:dense-2gnn}.
 
-\subsubsection{The Sparse Implementation}
+\subsubsection{Why the sparse form breaks the gradient}
 
-The classifier is trained on discrete, sparse graphs. A MUTAG molecule has around 20 edges out of $28 \times 28 = 784$ possible adjacency entries. Representing the graph as a full $N \times N$ matrix and computing $\mathbf{A}\,\mathbf{H}^{(t-1)}$ as a dense matrix product would waste computation on the zero entries.
+The classifier was trained using PyTorch Geometric's sparse graph representation: the adjacency is stored as an \texttt{edge\_index} tensor of integer source--destination pairs, and message passing is implemented as a \texttt{scatter\_add} over edges rather than as a dense matrix product $\mathbf{A}\mathbf{H}$. On discrete $\{0,1\}$ inputs the two forms compute identical outputs; sparse is simply faster and more memory-efficient because it skips the $O(N^2)$ zero-multiplications that dominate $\mathbf{A}\mathbf{H}$ when $\mathbf{A}$ is sparse.
 
-The classifier instead uses PyTorch Geometric's sparse representation. A graph is stored as an \texttt{edge\_index} tensor of shape $[2, |E|]$: a list of edges where the first row holds source indices and the second row holds destination indices. For a MUTAG molecule with 20 edges (40 directed entries for an undirected graph), this tensor has 40 columns instead of 784 matrix entries. Message passing is done via \texttt{scatter\_add}: for each edge $(i, j)$, the feature vector of node $j$ is transformed by $\mathbf{W}_2^{(t)}$ and added to an accumulator for node $i$. After processing all edges, the accumulator for each node contains the sum of its neighbours' transformed features, which is the same result as $\mathbf{A}\,\mathbf{H}^{(t-1)}\,\mathbf{W}_2^{(t)}$, without materialising $\mathbf{A}$.
+This is fine for classifier training, where $\mathbf{A}$ is a fixed discrete input and no gradients need to flow through it. It breaks inside the generator's training loop, where the adjacency $\tilde{A} \in [0,1]^{N \times N}$ is a continuous tensor produced by the Gumbel-Softmax straight-through estimator and $\nabla_\phi \mathcal{L}_{\text{GNN}}$ requires the derivative $\partial f_\Phi / \partial \tilde{A}$. The sparse forward has no slot for a float adjacency: converting $\tilde{A}$ into an \texttt{edge\_index} requires a thresholding step whose derivative is zero everywhere. The chain rule for $\nabla_\phi \mathcal{L}_{\text{GNN}}$ then contains a zero factor, and the generator receives no signal from this term.
 
-The classifier's forward function has the signature \texttt{forward(x, edge\_index)}. It does not accept an adjacency matrix. For classifier training this is appropriate: the adjacency is a fixed discrete input, no gradients flow through it, and the sparse form is faster.
+\subsubsection{The fix}
 
-Two points matter for what follows: (i) the sparse form computes exactly the same function as the dense matrix form on discrete graphs, so it is an implementation choice, not a modelling choice; and (ii) the sparse form was chosen for speed and memory reasons that no longer apply inside the generator's training loop.
+The classifier's forward pass is re-implemented using dense matrix operations. The pretrained weights $\mathbf{W}_1^{(t)}, \mathbf{W}_2^{(t)}, \mathbf{W}_3^{(\ell)}, \mathbf{W}_4^{(\ell)}$ are copied from the sparse model unchanged and kept frozen throughout GIN-Graph training. Where the sparse version uses \texttt{scatter\_add}, the dense version uses \texttt{torch.matmul} with $\tilde{A}$ as a continuous input tensor. Autograd differentiates matrix multiplication: for $\mathbf{Y} = \tilde{A}\,\mathbf{H}$, each entry $\partial \mathbf{Y} / \partial \tilde{A}_{ij} = \mathbf{H}[j,:]$ is well-defined. The chain rule no longer contains a zero factor, and $\nabla_\phi \mathcal{L}_{\text{GNN}}$ flows back to the generator.
 
-\subsubsection{The Problem the Generator Creates}
-
-The generator outputs a continuous adjacency matrix $\tilde{A} \in [0, 1]^{N \times N}$, where each entry is a soft edge weight produced by the Gumbel-Softmax straight-through estimator (Section~\ref{sec:generator}). Training requires backpropagating from $\mathcal{L}_{\text{GNN}} = -\log p_\Phi(y = c \mid \tilde{A}, \tilde{X})$ (Equation~\ref{eq:gnn-loss}) to the generator's weights. This requires the partial derivative $\partial f_\Phi / \partial \tilde{A}$, the gradient of the classifier's output with respect to its adjacency input.
-
-The classifier's forward function does not take an adjacency matrix. It takes an \texttt{edge\_index}. Converting $\tilde{A}$ to an edge list requires thresholding: keep entries where $\tilde{A}_{ij} > 0.5$, discard the rest. Thresholding is a step function. Its derivative is zero everywhere (and undefined at the step). After thresholding, the \texttt{edge\_index} consists of integer indices with no autograd connection to the continuous values they came from. The partial derivative $\partial f_\Phi / \partial \tilde{A}$ becomes zero. The generator receives no learning signal from $\mathcal{L}_{\text{GNN}}$.
-
-The failure is mechanical. The chain rule computes a product of derivatives along the path from $\tilde{A}$ to $\mathcal{L}_{\text{GNN}}$. One factor in that product is the derivative of the thresholding step, which is zero. A zero factor makes the entire product zero, and the generator's weights do not update.
-
-\subsubsection{The Fix}
-
-The dense wrapper re-implements the pretrained classifier's forward pass using dense matrix operations in place of sparse scatter operations, with the classifier's weights copied over and kept frozen. Two properties then hold by construction. On discrete $\{0,1\}$ adjacency inputs, the dense and sparse forms compute the same function, so the wrapper introduces no modelling change over the pretrained classifier. On continuous adjacency inputs, only the dense form is defined, since sparse scatter presupposes integer edge indices. The dense form therefore exposes $\tilde{A}$ as a float tensor in the computation graph, which makes $\partial z_{\text{logits}} / \partial \tilde{A}$ well-defined and allows $\nabla_\phi \mathcal{L}_{\text{GNN}}$ to flow back to the generator's parameters $\phi$.
-
-Concretely, the sparse call \texttt{scatter\_add} on an edge list is replaced by a matrix product $\tilde{A}\,\mathbf{H}^{(t-1)}$ via \texttt{torch.matmul}. Autograd differentiates matrix multiplication directly: if $\mathbf{Y} = \tilde{A}\,\mathbf{H}$, then $\partial \mathbf{Y} / \partial \tilde{A}_{ij} = \mathbf{H}[j, :]$, and every entry of $\tilde{A}$ has a well-defined derivative. The chain rule no longer contains a zero factor.
-
-The pretrained weights $\mathbf{W}_1^{(t)}, \mathbf{W}_2^{(t)}, \mathbf{W}_3^{(\ell)}, \mathbf{W}_4^{(\ell)}$ are copied from the sparse model unchanged. These weights parameterise the update rule (how features are transformed and combined), not the implementation (how edges are iterated). They are valid in both code paths and remain frozen throughout GIN-Graph training; only the generator's weights are updated.
-
-The dense wrapper is not a different model. It is the same model with a different forward function that accepts continuous adjacency matrices and maintains a gradient path from $\tilde{A}$ to the classifier's output.
+The wrapper is not a different model---it is the same mathematical function with a forward that accepts continuous adjacency matrices. The rewrite is direct for the 1-GNN (Section~\ref{sec:dense-1gnn}, following~\cite{sun2025gingraph}); the 1-2-GNN extension (Section~\ref{sec:dense-2gnn}) is this work's contribution and is treated separately.
 
 \subsubsection{Dense 1-GNN}
+\label{sec:dense-1gnn}
 
 For the 1-GNN branch, the rewrite is direct. The node-level update (Equation~\ref{eq:1gnn-matrix}) translates to dense batched computation. For a batch of $B = 64$ graphs with node features $\mathbf{X} \in \mathbb{R}^{B \times N \times d}$ and adjacency $\mathbf{A} \in [0,1]^{B \times N \times N}$:
 \begin{equation}
@@ -441,6 +426,7 @@ For the 1-GNN branch, the rewrite is direct. The node-level update (Equation~\re
 where the batch dimension is broadcast. The matrix product $\mathbf{A}\,\mathbf{H}^{(t-1)}$ replaces \texttt{scatter\_add}. Each entry $\tilde{A}_{ij}$ participates directly in the multiplication, so autograd can compute $\partial \mathbf{H}^{(t)} / \partial \tilde{A}_{ij}$. The weights $\mathbf{W}_1^{(t)}, \mathbf{W}_2^{(t)}$ are copied from the pretrained sparse model and kept frozen. This step is taken directly from GIN-Graph~\cite{sun2025gingraph} and similar dense rewrites for differentiable graph generation. It is stated here to contrast with the 2-GNN case.
 
 \subsubsection{Dense 2-GNN}
+\label{sec:dense-2gnn}
 
 The same sparse-to-dense logic is applied to the 2-GNN branch. The construction is more involved than for the 1-GNN because the 2-set neighbourhood depends on adjacency lookups, which must also be made continuous.
 
