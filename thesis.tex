@@ -6,6 +6,7 @@
 \usepackage[margin=2.5cm]{geometry}
 \usepackage{amsmath,amssymb}
 \usepackage{booktabs}
+\usepackage{multirow}
 \usepackage{graphicx}
 \usepackage{subcaption}
 \usepackage[hidelinks]{hyperref}
@@ -92,20 +93,11 @@ Common choices for READOUT include sum, mean, and max pooling over the node set.
 
 \subsection{The $k$-WL Hierarchy and $k$-GNNs}
 
-The \emph{Weisfeiler--Leman} (WL) graph isomorphism test is a classical algorithm that iteratively refines node colour labels based on the multiset of neighbour colours. Two graphs are distinguished if, after some number of iterations, they produce different multisets of colours. The 1-WL test operates on individual nodes.
+The 1-dimensional \emph{Weisfeiler--Leman} (1-WL) test decides graph isomorphism up to a known failure class by iteratively hashing node labels. Each node's new label is a hash of its current label together with the multiset of its neighbours' labels. After convergence, two graphs are declared possibly isomorphic iff their label histograms agree.
 
-A fundamental result in GNN theory is that standard message-passing GNNs are \emph{at most} as powerful as the 1-WL test~\cite{morris2019weisfeiler}: if 1-WL cannot distinguish two graphs, no message-passing GNN can either. This means there exist structurally different graphs (e.g., certain regular graphs) that no standard GNN can tell apart.
+The standard failure mode is that 1-WL cannot tell apart two graphs in which every node has the same local signature. The canonical example is two disjoint triangles versus a single hexagon: every node is degree 2 with two degree-2 neighbours, so the histograms match at every iteration even though the graphs are not isomorphic.
 
-The $k$-WL test generalises this by operating on $k$-tuples of nodes, achieving strictly increasing discriminative power: for all $k \geq 2$, $(k+1)$-WL is strictly more powerful than $k$-WL~\cite{cai1992optimal}. Morris et al.~\cite{morris2019weisfeiler} proposed $k$-GNNs that achieve this higher expressiveness by performing message passing on $k$-element subsets of nodes (``$k$-sets'') rather than individual nodes.
-
-For a $k$-set $s = \{v_1, \ldots, v_k\} \subseteq V$, the \emph{local neighbourhood} is:
-\begin{equation}
-  \mathcal{N}_L(s) = \left\{s' \subseteq V : |s'| = k,\; |s \triangle s'| = 2,\; \text{the differing elements are adjacent in } G\right\},
-  \label{eq:kset-nbr}
-\end{equation}
-where $s \triangle s'$ denotes the symmetric difference. In words: a neighbour of $s$ is obtained by replacing exactly one element of $s$ with a new node that is adjacent (in the original graph $G$) to the removed node.
-
-\textbf{Example.} Consider a 2-set $s = \{u, v\}$. Its neighbours are all pairs $\{v, w\}$ where $(u,w) \in E$ (replacing $u$ with adjacent $w$) and all pairs $\{u, w\}$ where $(v,w) \in E$ (replacing $v$ with adjacent $w$). This means the 2-GNN can capture pairwise relationships and bond-level patterns that are invisible to a 1-GNN operating on individual nodes.
+The $k$-WL test fixes this by hashing over $k$-tuples of nodes rather than individual nodes, which makes non-local structural differences visible; 2-WL already distinguishes the triangles-vs-hexagon example. Morris et al.~\cite{morris2019weisfeiler} showed that 1-GNNs are at most as powerful as 1-WL in distinguishing power, and that $k$-GNNs operating on $k$-element node subsets (``$k$-sets'') are at most as powerful as $k$-WL (their Propositions 1--4). The Cai--F\"urer--Immerman construction~\cite{cai1992optimal} further shows $(k{+}1)$-WL is strictly more powerful than $k$-WL for all $k \geq 2$. This is the motivation for considering a 1-2-GNN: it augments node-level message passing with pair-level message passing and can therefore capture structural distinctions invisible to a standard 1-GNN. We rely on these results as background and do not reproduce them here.
 
 \subsection{GIN-Graph}
 
@@ -164,7 +156,7 @@ The 2-GNN operates on 2-sets (unordered node pairs) rather than individual nodes
 \end{equation}
 where $\|$ denotes vector concatenation. The isomorphism type $\mathbb{1}[(u,v) \in E] \in \{0, 1\}$ indicates whether $u$ and $v$ are connected by an edge. This allows the 2-GNN to distinguish between pairs of connected nodes and pairs of unconnected nodes, a distinction that carries structural meaning (e.g., in a molecule, bonded vs.\ non-bonded atom pairs).
 
-Message passing on 2-sets follows the neighbourhood definition from Equation~\eqref{eq:kset-nbr}. For a 2-set $s = \{u, v\}$, the local neighbourhood decomposes into two cases:
+Message passing on 2-sets uses a local neighbourhood in which each neighbour of a pair is obtained by replacing exactly one of its elements with a node adjacent (in the original graph) to the removed one. For a 2-set $s = \{u, v\}$, this neighbourhood decomposes into two cases:
 \begin{equation}
   \mathcal{N}_L(\{u, v\}) = \underbrace{\left\{\{v, w\} : w \neq u,\; (u, w) \in E\right\}}_{\text{Case 1: replace } u \text{ with } w} \cup \underbrace{\left\{\{u, w\} : w \neq v,\; (v, w) \in E\right\}}_{\text{Case 2: replace } v \text{ with } w}.
   \label{eq:2set-nbr}
@@ -547,7 +539,7 @@ In these experiments, $\kappa \approx 0$ for all configurations. This is a struc
 
 \subsubsection{Evaluation Protocol}
 
-Each configuration generates 100 graphs and reports: (i) the validity rate, the fraction passing both the $v > 0.5$ and the 3$\sigma$ degree conditions; (ii) the mean validation score, averaged across all 100 graphs; (iii) the component decomposition $s$, $p$, $d$ (Table~\ref{tab:decomposition}), where patterns such as high $p$ with low $s$ on PROTEINS Enzyme would not appear under the $s = p$ proxy; and (iv) the top-ranked explanations sorted by $v$, shown in the figures. All four quantities are forward-pass computations on frozen networks. No training or gradients are involved.
+Each configuration generates 100 graphs and reports: (i) the validity rate, the fraction passing both the $v > 0.5$ and the 3$\sigma$ degree conditions; (ii) the mean validation score, averaged across all 100 graphs; (iii) the component decomposition $s$, $p$, $d$ (Table~\ref{tab:sanity}), where patterns such as high $p$ with low $s$ on PROTEINS Enzyme would not appear under the $s = p$ proxy; and (iv) the top-ranked explanations sorted by $v$, shown in the figures. All four quantities are forward-pass computations on frozen networks. No training or gradients are involved.
 
 % ============================================================
 % 4. Experimental Setup
@@ -581,27 +573,7 @@ PROTEINS & 1113 & 3 (sec.\ struct.) & 620 & 50 & Enzyme vs.\ non-enzyme \\
 
 All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers; the 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) for 100 epochs with cross-entropy loss. Data is split 80/20 into train/test with a fixed seed of 42.
 
-The GIN-Graph generator uses a latent dimension $d_z = 32$, hidden dimension $d_h = 128$, and is trained for 300 epochs with Adam (lr = 0.001) and batch size 64. WGAN-GP uses $\lambda_{\text{GP}} = 10$ and trains the discriminator once per generator update ($n_{\text{critic}} = 1$). The dynamic weighting uses $p = 0.4$, $k = 10$, $\lambda_{\min} = 0$, $\lambda_{\max} = 1$.
-
-\textbf{Computational cost.} Table~\ref{tab:timing} reports wall-clock times on CPU. The 2-GNN component incurs substantial overhead due to the $O(n^2)$ pair construction and message passing. On PROTEINS, the 1-2-GNN is $\sim$326$\times$ slower per forward pass than the 1-GNN, reflecting the cost of processing all $\binom{n}{2}$ node pairs for graphs with up to 620 nodes. GIN-Graph generation uses the dense wrapper, where the 1-2-GNN overhead is $\sim$36--74$\times$ at the fixed generation size ($N = 28$ for MUTAG, $N = 50$ for PROTEINS).
-
-\begin{table}[htbp]
-\centering
-\caption{Wall-clock inference times on CPU. $k$-GNN: sparse forward pass (batch of 64 graphs). GIN-Graph: dense wrapper generation (100 graphs).}
-\label{tab:timing}
-\small
-\begin{tabular}{llcc}
-\toprule
-Dataset & Model & $k$-GNN (ms/batch) & GIN-Graph gen (s/100) \\
-\midrule
-MUTAG & 1-GNN & 1.9 & 0.02 \\
-MUTAG & 1-2-GNN & 99.5 ($52\times$) & 1.48 ($74\times$) \\
-\midrule
-PROTEINS & 1-GNN & 6.8 & 0.04 \\
-PROTEINS & 1-2-GNN & 2214 ($326\times$) & 1.43 ($36\times$) \\
-\bottomrule
-\end{tabular}
-\end{table}
+The GIN-Graph generator uses a latent dimension $d_z = 32$, hidden dimension $d_h = 128$, and is trained for 300 epochs with Adam (lr = 0.001) and batch size 64. WGAN-GP uses $\lambda_{\text{GP}} = 10$ and trains the discriminator once per generator update ($n_{\text{critic}} = 1$). The dynamic weighting uses $p = 0.4$, $k = 10$, $\lambda_{\min} = 0$, $\lambda_{\max} = 1$. The generation size is fixed at $N = 28$ for MUTAG and $N = 50$ for PROTEINS.
 
 \subsection{Evaluation Protocol}
 
@@ -619,54 +591,108 @@ For each model-dataset-class combination, we generate 100 explanation graphs at 
 \section{Results}
 \label{sec:results}
 
-\subsection{$k$-GNN Classification Performance}
+The goal of this section is to describe, without evaluative judgement, what each classifier has internalised as the class concept on each dataset. We do not have a ground-truth notion of a ``correct'' explanation, so claims are restricted to describing where the real data, the 1-GNN-generated data, and the 1-2-GNN-generated data differ, and where they coincide. We do not claim one architecture produces better explanations than the other.
 
-Table~\ref{tab:kgnn-results} summarises the classification results. On MUTAG, both models achieve identical best test accuracy of 89.5\%, indicating that the additional pairwise message passing does not provide a classification advantage on this small molecular dataset. On PROTEINS, both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%) after 100 epochs of training, with the 1-2-GNN now processing all $\binom{n}{2}$ node pairs via a numba-accelerated kernel instead of sampling a subset. The 1-2-GNN's best accuracy occurs at epoch 75, showing that the model benefits from extended training when given access to the full pairwise structure.
+Section~\ref{sec:sanity} (Part~A) first checks that all three components of the pipeline---the classifiers, the generators, and the validation score---are functioning before any comparison is interpreted. Section~\ref{sec:qualitative} (Part~B) then performs the three-way qualitative comparison per (dataset, class) cell.
+
+\subsection{Part A: Pipeline sanity check}
+\label{sec:sanity}
+
+\subsubsection{Classifier accuracy}
+
+Table~\ref{tab:kgnn-results} reports test-set accuracy for both classifiers on both datasets. On MUTAG, both achieve the same best test accuracy (89.5\%); on PROTEINS, the 1-GNN reaches 79.8\% and the 1-2-GNN 78.9\%. Both classifiers therefore provide a usable target for GIN-Graph training. The two-point accuracy gap on PROTEINS is below the single-seed noise level discussed in Section~\ref{sec:limitations}, so we do not read it as evidence of architectural superiority.
 
 \begin{table}[htbp]
 \centering
-\caption{$k$-GNN classification results. Best test accuracy reported over all epochs.}
+\caption{$k$-GNN classification results. Best test accuracy reported over all training epochs.}
 \label{tab:kgnn-results}
 \begin{tabular}{llcccc}
 \toprule
 \textbf{Dataset} & \textbf{Model} & \textbf{Params} & \textbf{Final Test Acc} & \textbf{Best Acc} & \textbf{Best Epoch} \\
 \midrule
-MUTAG    & 1-GNN   & 21,570 & 81.6\% & 89.5\% & 84 \\
-MUTAG    & 1-2-GNN & 50,370 & 76.3\% & 89.5\% & 18 \\
+MUTAG    & 1-GNN   & 21{,}570 & 81.6\% & 89.5\% & 84 \\
+MUTAG    & 1-2-GNN & 50{,}370 & 76.3\% & 89.5\% & 18 \\
 \midrule
-PROTEINS & 1-GNN   & 21,058 & 75.8\% & 79.8\% & 120 \\
-PROTEINS & 1-2-GNN & 49,858 & 73.1\% & 78.9\% & 75 \\
+PROTEINS & 1-GNN   & 21{,}058 & 75.8\% & 79.8\% & 120 \\
+PROTEINS & 1-2-GNN & 49{,}858 & 73.1\% & 78.9\% & 75 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\subsection{GIN-Graph Explanation Quality: MUTAG}
-\label{sec:mutag_results}
+\subsubsection{Generator training convergence}
 
-Table~\ref{tab:gin-mutag} presents the GIN-Graph results on MUTAG. All configurations were fully trained for 300 epochs, enabling fair cross-model comparison on both classes.
+Figure~\ref{fig:training} shows a representative training curve for one of the four generators (MUTAG, 1-2-GNN, class 1). The three losses follow the expected pattern: during the first $\sim$120 epochs ($\lambda \approx 0$), the WGAN-GP losses dominate while the GNN guidance loss is inactive; as the dynamic weighting $\lambda(t)$ rises (Equation~\ref{eq:lambda}), the GNN loss decreases sharply and the adversarial losses plateau. All four generators reach the 300-epoch horizon without divergence on both datasets.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{results/mutag/12gnn_class1/figures/training.png}
+\caption{Training curves for one GIN-Graph run (MUTAG, 1-2-GNN, class 1). Generator loss, discriminator loss, and GNN guidance loss over 300 epochs. The dynamic weighting $\lambda(t)$ shifts emphasis from adversarial realism (early) to class-specific guidance (late).}
+\label{fig:training}
+\end{figure}
+
+\subsubsection{Validation-score component sanity}
+
+Table~\ref{tab:sanity} reports the mean validation score $v$ and its components ($s$, $p$, $d$) averaged over 100 graphs from each of the eight generators. Two observations confirm the components are working as intended:
+\begin{itemize}[nosep]
+  \item Prediction probability $p$ is high ($p \geq 0.56$ across all cells, $p \geq 0.92$ in seven of eight) confirming that each generator has learned to target its trained class.
+  \item Embedding similarity $s$ and degree score $d$ lie strictly inside $(0,1)$ in every cell---they are not collapsed to 0 or 1, so the metric is informative rather than saturated.
+\end{itemize}
+The spread of $s$ across cells (from 0.151 to 0.987) is the signal the qualitative comparison will interpret in Part~B.
 
 \begin{table}[htbp]
 \centering
-\caption{GIN-Graph explanation quality on MUTAG. All models trained for 300 epochs.}
-\label{tab:gin-mutag}
-\begin{tabular}{llccccc}
+\caption{Validation-score components per generator (mean over 100 generated graphs).}
+\label{tab:sanity}
+\begin{tabular}{lllcccc}
 \toprule
-\textbf{Class} & \textbf{Model} & \textbf{Valid\%} & \textbf{Val Score} & $s$ & $p$ & $d$ \\
+\textbf{Dataset} & \textbf{Class} & \textbf{Model} & $v$ & $s$ & $p$ & $d$ \\
 \midrule
-0 (Mutagen)     & 1-GNN   & 32\% & 0.320 & 0.700 & 1.000 & 0.210 \\
-0 (Mutagen)     & 1-2-GNN & \textbf{41\%} & \textbf{0.434} & \textbf{0.771} & 1.000 & \textbf{0.314} \\
+MUTAG    & 0 (Mutagen)    & 1-GNN   & 0.320 & 0.700 & 1.000 & 0.210 \\
+MUTAG    & 0 (Mutagen)    & 1-2-GNN & 0.434 & 0.771 & 1.000 & 0.314 \\
+MUTAG    & 1 (Non-Mut.)   & 1-GNN   & 0.681 & 0.935 & 1.000 & 0.490 \\
+MUTAG    & 1 (Non-Mut.)   & 1-2-GNN & 0.735 & 0.933 & 1.000 & 0.565 \\
 \midrule
-1 (Non-Mutagen) & 1-GNN   & 78\% & 0.681 & \textbf{0.935} & 1.000 & 0.490 \\
-1 (Non-Mutagen) & 1-2-GNN & \textbf{82\%} & \textbf{0.735} & 0.933 & 1.000 & \textbf{0.565} \\
+PROTEINS & 0 (Non-Enz.)   & 1-GNN   & 0.986 & 0.987 & 0.986 & 0.984 \\
+PROTEINS & 0 (Non-Enz.)   & 1-2-GNN & 0.760 & 0.782 & 0.564 & 0.996 \\
+PROTEINS & 1 (Enzyme)     & 1-GNN   & 0.330 & 0.356 & 0.919 & 0.837 \\
+PROTEINS & 1 (Enzyme)     & 1-2-GNN & 0.524 & 0.151 & 0.998 & 0.961 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Both models achieve successful generation on both classes, with the 1-2-GNN showing somewhat higher validity rates (82\% vs.\ 78\% on class 1, 41\% vs.\ 32\% on class 0) and validation scores (0.735 vs.\ 0.681 on class 1). However, the more significant finding is not the quantitative difference---which may not be statistically significant given the single-seed setup (Section~\ref{sec:limitations})---but the \emph{qualitative divergence} in what the two models generate.
+\subsection{Part B: Qualitative three-way comparison}
+\label{sec:qualitative}
 
-Despite identical classification accuracy (89.5\%), the two models produce strikingly different class-0 explanation families (Figure~\ref{fig:mutag-class0}). Across the saved top-ranked explanation set, the 1-GNN remains C/N/O-dominated (42.9\% C, 13.9\% N, 13.2\% O), while the 1-2-GNN shifts toward a much more halogen-heavy pattern (31.1\% F, 1.1\% Br) with almost no nitrogen (0.4\% N). The population-level comparison in Section~\ref{sec:comparison} shows the same pattern: on MUTAG class 0, the 1-2-GNN generator overproduces halogens much more strongly than the 1-GNN. This divergence reveals that the two architectures have learned fundamentally different internal representations of the same class.
+For each (dataset, class) cell, we describe what the real class-$c$ graphs look like, then what the 1-GNN-generated and 1-2-GNN-generated class-$c$ graphs look like under the same structural summaries. The statistics come from 500 generated graphs per configuration; no retraining is performed. Each per-dataset table below places the three sources side by side (or as adjacent rows) for every class.
 
-On class 0 (Mutagen), both models struggle with low validity rates despite Mutagen being the majority class (125/188 = 66.5\%). This likely stems from structural diversity: mutagenic compounds exhibit varied functional groups---nitro, amino, halogen---making a single representative graph harder to produce than the more structurally uniform Non-Mutagen class. Both models achieve perfect prediction probability ($p = 1.0$).
+\subsubsection{MUTAG}
+\label{sec:mutag_results}
+
+Table~\ref{tab:mutag-compare} summarises the three sources for MUTAG. The two generators both achieve $p \approx 1.0$ and keep mean degree within 0.05 of the real mean, but they diverge in atom-type composition and graph size.
+
+\begin{table}[htbp]
+\centering
+\caption{MUTAG three-way comparison per class. Sizes and degree from 500 generated graphs. Atom percentages from generated-graph node populations; only the most populated atom types are shown.}
+\label{tab:mutag-compare}
+\small
+\begin{tabular}{llcccccc}
+\toprule
+Class & Source & $\bar{n}$ & $\bar{d}$ & \%C & \%N & \%O & \%halogen (F+Cl+Br+I) \\
+\midrule
+\multirow{3}{*}{0 (Mutagen)}
+ & real            & 13.9 & 2.09 & 64.2 & 13.0 & 18.8 & 4.1 \\
+ & 1-GNN gen       & 23.8 & 2.06 & 57.2 & 10.9 & 17.0 & 14.9 \\
+ & 1-2-GNN gen     & 23.1 & 2.05 & 45.8 &  0.1 & 12.8 & 41.3 \\
+\midrule
+\multirow{3}{*}{1 (Non-Mutagen)}
+ & real            & 19.8 & 2.24 & 73.2 &  9.3 & 17.1 & 0.4 \\
+ & 1-GNN gen       & 27.3 & 2.23 & 63.4 &  7.6 & 19.3 & 9.7 \\
+ & 1-2-GNN gen     & 24.3 & 2.23 & 80.0 &  2.9 & 17.1 & 0.0 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Figures~\ref{fig:mutag-class0} and \ref{fig:mutag-explanations} show top-ranked explanation graphs from both generators; Figure~\ref{fig:legend} gives the atom-type colour key.
 
 \begin{figure}[htbp]
 \centering
@@ -683,11 +709,9 @@ On class 0 (Mutagen), both models struggle with low validity rates despite Mutag
   \caption{1-2-GNN explanations for Mutagen}
   \label{fig:mutag-12gnn-c0}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on MUTAG class 0 (Mutagen). The 1-GNN produces mostly C/N/O-rich structures, while the 1-2-GNN produces much more halogen-heavy structures. Node colours indicate atom types (see Figure~\ref{fig:legend}).}
+\caption{Top-ranked GIN-Graph explanations on MUTAG class 0 (Mutagen). Node colours indicate atom types (see Figure~\ref{fig:legend}).}
 \label{fig:mutag-class0}
 \end{figure}
-
-Figure~\ref{fig:mutag-explanations} shows the top-ranked explanation graphs for both models on MUTAG class 1.
 
 \begin{figure}[htbp]
 \centering
@@ -715,32 +739,36 @@ Figure~\ref{fig:mutag-explanations} shows the top-ranked explanation graphs for 
 \label{fig:legend}
 \end{figure}
 
-The top 1-2-GNN explanations achieve near-perfect validation scores (0.986), with consistent graph sizes (24--27 nodes, 27--30 edges). The 1-GNN explanations achieve similarly high scores (top score 0.984), with comparable structural variation.
+\paragraph{Discussion (MUTAG).} On class 0 (Mutagen) the two architectures diverge \emph{in different directions} from the real data: the 1-GNN keeps the real C/N/O balance roughly intact but amplifies halogens from 4.1\% to 14.9\%, while the 1-2-GNN drops nitrogen from 13.0\% to 0.1\% and amplifies halogens to 41.3\%. On class 1 (Non-Mutagen) the two generators diverge from the real data \emph{in the same direction} in one respect---both produce oversized graphs ($\bar{n} \approx 25$ versus real 19.8)---but in different directions in another: the 1-GNN introduces iodine and fluorine that are nearly absent in the real class (0.4\% halogen), while the 1-2-GNN produces essentially pure C/O/N backbones with no halogens. These are descriptive differences, not quality claims.
 
-\subsection{GIN-Graph Explanation Quality: PROTEINS}
+\subsubsection{PROTEINS}
+\label{sec:proteins_results}
 
-Table~\ref{tab:gin-proteins} presents results on PROTEINS. All configurations were fully trained for 300 epochs with graph size and node type regularisation (see Section~\ref{sec:training}). Unlike MUTAG, the two models show complementary strengths, with each achieving higher scores on a different class.
+Table~\ref{tab:proteins-compare} gives the analogous summary for PROTEINS. Here the node-type alphabet is secondary-structure labels (Helix, Sheet, Coil/Turn).
 
 \begin{table}[htbp]
 \centering
-\caption{GIN-Graph explanation quality on PROTEINS. All models trained for 300 epochs with structural regularisation.}
-\label{tab:gin-proteins}
+\caption{PROTEINS three-way comparison per class. Sizes and degree from 500 generated graphs. Node-type percentages from generated-graph node populations.}
+\label{tab:proteins-compare}
+\small
 \begin{tabular}{llccccc}
 \toprule
-\textbf{Class} & \textbf{Model} & \textbf{Valid\%} & \textbf{Val Score} & $s$ & $p$ & $d$ \\
+Class & Source & $\bar{n}$ & $\bar{d}$ & \%Helix & \%Sheet & \%Coil/Turn \\
 \midrule
-0 (Non-Enzyme)  & 1-GNN   & 100\% & 0.986 & 0.987 & 0.986 & 0.984 \\
-0 (Non-Enzyme)  & 1-2-GNN & 100\% & 0.760 & 0.782 & 0.564 & 0.996 \\
+\multirow{3}{*}{0 (Non-Enzyme)}
+ & real            & 48.7 & 3.80 & 50.4 & 46.5 & 3.1 \\
+ & 1-GNN gen       & 46.6 & 3.81 & 54.3 & 45.7 & 0.0 \\
+ & 1-2-GNN gen     & 50.0 & 3.81 & 50.9 & 47.1 & 2.0 \\
 \midrule
-1 (Enzyme)      & 1-GNN   & 37\%  & 0.330 & 0.356 & 0.919 & 0.837 \\
-1 (Enzyme)      & 1-2-GNN & 94\%  & 0.524 & 0.151 & 0.998 & 0.961 \\
+\multirow{3}{*}{1 (Enzyme)}
+ & real            & 23.7 & 3.64 & 40.7 & 56.2 & 3.1 \\
+ & 1-GNN gen       & 24.0 & 3.73 & 24.5 & 75.5 & 0.0 \\
+ & 1-2-GNN gen     & 29.5 & 3.64 & 11.0 & 88.9 & 0.0 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The 1-GNN achieves near-perfect scores on class 0 (Non-Enzyme) across all components ($v = 0.986$, $s = 0.987$, $p = 0.986$), while the 1-2-GNN achieves lower but still functional prediction probability ($p = 0.564$) and overall validation score ($v = 0.760$). On class 1 (Enzyme), both models achieve high prediction probability ($p = 0.919$ and $0.998$), but the 1-GNN struggles with validity (37\%) while the 1-2-GNN achieves 94\% validity. Notably, both models show low embedding similarity on Enzyme ($s = 0.356$ and $0.151$), indicating that generated Enzyme graphs remain distant from the real embedding centroid despite being correctly classified.
-
-Both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%), so this complementary pattern reflects genuine differences in what the two architectures learn about protein structure rather than a simple classifier quality gap. The 1-GNN's node-level representations capture Non-Enzyme patterns more effectively, while the 1-2-GNN's pairwise representations enable higher-validity Enzyme generation.
+Figures~\ref{fig:proteins-explanations} and \ref{fig:proteins-12gnn-explanations} show top-ranked explanations for each class and model.
 
 \begin{figure}[htbp]
 \centering
@@ -776,107 +804,20 @@ Both models achieve comparable classification accuracy (79.8\% vs.\ 78.9\%), so 
   \caption{1-2-GNN explanations for Enzyme}
   \label{fig:proteins-12gnn-c1}
 \end{subfigure}
-\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-2-GNN). Class 0 explanations achieve validation scores $v = 0.76$--$0.82$ with 50 nodes, while class 1 explanations achieve $v = 0.52$--$0.58$ with 30--50 nodes.}
+\caption{Top-ranked GIN-Graph explanations on PROTEINS (1-2-GNN).}
 \label{fig:proteins-12gnn-explanations}
 \end{figure}
 
-The class-specific strengths are visually evident in the explanation figures. The 1-GNN class 0 explanations (Figure~\ref{fig:proteins-explanations}) show high-quality graphs with validation scores $v \approx 0.99$, while its class 1 explanations have 37\% validity, with the valid graphs showing lower embedding similarity. The 1-2-GNN explanations (Figure~\ref{fig:proteins-12gnn-explanations}) achieve high validity on both classes (100\% class 0, 94\% class 1), with moderate prediction probability on class 0 ($p = 0.564$) and low embedding similarity on class 1 ($s = 0.151$). This complementary pattern---each model generating higher-quality explanations for a different class---suggests that the node-level and pairwise representations capture different aspects of protein structure.
+\paragraph{Discussion (PROTEINS).} The headline observation on PROTEINS is not in the atom/structure-type columns but in the embedding similarity. Both classifiers assign high target-class probability to their own class-1 (Enzyme) generations ($p = 0.919$ and $p = 0.998$, Table~\ref{tab:sanity}), yet the 1-GNN-generated graphs land at $s = 0.356$ in the 1-GNN embedding space while the 1-2-GNN-generated graphs land at $s = 0.151$ in the 1-2-GNN embedding space. Same confidence, different regions of each classifier's learned embedding geometry. This is the comparison's clearest indication that the two classifiers have internalised different Enzyme concepts. On class 0 (Non-Enzyme), the 1-2-GNN generator matches the real secondary-structure distribution closely (Helix 50.9\% vs.\ real 50.4\%, Sheet 47.1\% vs.\ 46.5\%), whereas the 1-GNN-generated size is slightly below the real mean ($46.6$ vs.\ $48.7$). On class 1, both generators diverge from the real data in the same direction on graph size (oversized) but in different magnitudes on secondary-structure composition (the 1-2-GNN concentrates strongly on Sheet, 88.9\% vs.\ real 56.2\%). Again, these are descriptive observations; we are not claiming one generator is a more faithful sampler.
 
-\subsection{Metric Decomposition}
-\label{sec:decomposition}
-
-Table~\ref{tab:decomposition} provides a detailed comparison of the three validation score components across all configurations, now with all models trained for 300 epochs.
-
-\begin{table}[htbp]
-\centering
-\caption{Validation score decomposition for all GIN-Graph models (300 epochs).}
-\label{tab:decomposition}
-\begin{tabular}{lllccc}
-\toprule
-\textbf{Dataset} & \textbf{Class} & \textbf{Model} & $s$ (emb.\ sim) & $p$ (pred.\ prob) & $d$ (degree) \\
-\midrule
-MUTAG & 0 (Mutagen)    & 1-GNN   & 0.700 & 1.000 & 0.210 \\
-MUTAG & 0 (Mutagen)    & 1-2-GNN & 0.771 & 1.000 & 0.314 \\
-\midrule
-MUTAG & 1 (Non-Mut.)   & 1-GNN   & 0.935 & 1.000 & 0.490 \\
-MUTAG & 1 (Non-Mut.)   & 1-2-GNN & 0.933 & 1.000 & 0.565 \\
-\midrule
-PROTEINS & 0 (Non-Enz.) & 1-GNN   & 0.987 & 0.986 & 0.984 \\
-PROTEINS & 0 (Non-Enz.) & 1-2-GNN & 0.782 & 0.564 & 0.996 \\
-\midrule
-PROTEINS & 1 (Enzyme)   & 1-GNN   & 0.356 & 0.919 & 0.837 \\
-PROTEINS & 1 (Enzyme)   & 1-2-GNN & 0.151 & 0.998 & 0.961 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-On MUTAG, both models achieve perfect prediction probability ($p = 1.0$) on both classes, indicating that both classifiers provide strong gradient signal to the generators. The degree score shows the largest variation: the 1-2-GNN produces graphs with more realistic average degree on both classes (0.565 vs.\ 0.490 on class 1, 0.314 vs.\ 0.210 on class 0). Embedding similarity is comparable on class 1 ($s \approx 0.93$) and somewhat higher for the 1-2-GNN on class 0 (0.771 vs.\ 0.700).
-
-On PROTEINS, the metric profiles reveal how each architecture interacts differently with the generator. The 1-GNN achieves near-perfect scores on class 0 ($s = 0.987$, $p = 0.986$, $d = 0.984$) but lower embedding similarity on class 1 ($s = 0.356$), indicating generated Enzyme graphs diverge from the real embedding centroid despite being correctly classified ($p = 0.919$). The 1-2-GNN achieves moderate prediction probability on class 0 ($p = 0.564$) with high embedding similarity ($s = 0.782$) and near-perfect degree score ($d = 0.996$), while on class 1 it achieves near-perfect prediction probability ($p = 0.998$) but very low embedding similarity ($s = 0.151$). The degree scores are generally high across PROTEINS ($d > 0.83$), confirming that structural realism is maintained by the WGAN-GP component.
-
-\subsection{Training Dynamics}
-
-Figure~\ref{fig:training} shows a representative training curve from the MUTAG 1-2-GNN class 1 experiment. The three loss curves illustrate the interplay between the WGAN-GP adversarial training and the GNN guidance objective over 300 epochs.
-
-During the first $\sim$120 epochs ($\lambda \approx 0$), the generator loss and discriminator loss dominate: the generator learns to produce structurally realistic graphs that fool the discriminator, without pressure to target a specific class. As the dynamic weighting $\lambda(t)$ increases (Equation~\ref{eq:lambda}), the GNN guidance loss takes over, steering the generator toward class-specific patterns. This transition is visible as the GNN loss drops sharply while the adversarial losses plateau.
-
-The training behaviour varies across configurations. On MUTAG, all four generators converge smoothly, consistent with the small graph sizes ($N = 28$) and low feature dimensionality (7 atom types). On PROTEINS, the training dynamics are more complex: the 1-2-GNN class 0 generator achieves moderate prediction probability ($p = 0.564$ at evaluation), lower than the 1-GNN's near-perfect alignment ($p = 0.986$) on the same class. This gap reflects the difficulty of optimising through the 1-2-GNN's higher-dimensional embedding space ($\mathbb{R}^{128}$ vs.\ $\mathbb{R}^{64}$), where the generator must satisfy both node-level and pair-level classifier components simultaneously.
-
-\begin{figure}[htbp]
-\centering
-\includegraphics[width=0.9\textwidth]{results/mutag/12gnn_class1/figures/training.png}
-\caption{Training curves for GIN-Graph on MUTAG 1-2-GNN class 1, showing generator loss, discriminator loss, and GNN guidance loss over 300 epochs. The dynamic weighting schedule shifts emphasis from adversarial realism (early epochs) to class-specific GNN guidance (later epochs).}
-\label{fig:training}
-\end{figure}
-
-\subsection{Generated Dataset Comparison}
+\subsubsection{Cross-model classification}
 \label{sec:comparison}
 
-To evaluate the fidelity and cross-model transferability of generated explanations at scale, we generate 500 graphs per class from each GIN-Graph generator and compare the resulting synthetic datasets against the real data. This population-level analysis complements the per-graph metrics reported in Sections~\ref{sec:mutag_results}--\ref{sec:decomposition} by revealing systematic differences between what each model has learned. No retraining is performed---all graphs are generated from the existing checkpoints.
-
-\subsubsection{Structural Fidelity}
-
-Table~\ref{tab:structural} summarises the structural comparison. Across both datasets, degree distributions are matched more reliably than graph-size distributions. Kolmogorov--Smirnov statistics on degree range from 0.09 to 0.21, with generated mean degrees remaining close to the real values in every configuration. By contrast, the size KS statistics are substantially larger, indicating that the generators preserve local connectivity more successfully than the global population shape.
-
-Size regularisation helps on PROTEINS, but only partially. On class 0 (Non-Enzyme), generated graphs average 46.6 nodes (1-GNN) and 50.0 nodes (1-2-GNN) versus a real mean of 48.7. On class 1 (Enzyme), the 1-GNN matches the real mean size closely (24.0 vs.\ 23.7), whereas the 1-2-GNN remains oversized (29.5 vs.\ 23.7). On MUTAG ($N = 28$), all generators still produce oversized graphs: the generated means lie between 23 and 27 nodes, while the real means lie between 14 and 20. This reflects the fixed generator size and the tendency of the Gumbel-Softmax sampling to keep most nodes active.
-
-Node type distributions reveal a mixed rather than uniformly positive picture. On MUTAG class 1 (Non-Mutagen), the 1-2-GNN is the clearest success case: it generates C/O-dominated graphs with 80.0\% C and 17.1\% O, much closer to the real class distribution than the 1-GNN, which introduces atypical iodine (7.7\%) and fluorine (2.0\%). On MUTAG class 0 (Mutagen), however, the 1-2-GNN over-emphasises halogens (26.7\% F, 11.0\% Br, 3.6\% I) and underproduces N, whereas the 1-GNN stays closer to the real C/N/O proportions. On PROTEINS class 0, the 1-2-GNN closely matches the real secondary-structure distribution (H: 50.9\% vs.\ 50.4\%, S: 47.1\% vs.\ 46.5\%, C: 2.0\% vs.\ 3.1\%). On PROTEINS class 1, by contrast, both models overproduce sheets and underproduce helix/coil, with the 1-2-GNN class 1 generator being the least faithful (88.9\% S vs.\ 56.2\% real).
+Table~\ref{tab:cross} and Figure~\ref{fig:cross_class} report what happens when each generated dataset is classified by \emph{both} k-GNN classifiers. Same = target-class agreement by the generating model's own classifier; Cross = agreement by the other classifier.
 
 \begin{table}[htbp]
 \centering
-\caption{Structural comparison: 500 generated vs.\ real graphs per configuration. $D_{\text{KS}}^{\text{deg}}$ and $D_{\text{KS}}^{\text{size}}$ denote Kolmogorov--Smirnov statistics on degree and graph-size distributions, respectively. $\bar{d}$ = mean degree, $\bar{n}$ = mean graph size.}
-\label{tab:structural}
-\small
-\begin{tabular}{lcccc}
-\toprule
-Configuration & $D_{\text{KS}}^{\text{deg}}$ $\downarrow$ & $D_{\text{KS}}^{\text{size}}$ $\downarrow$ & $\bar{d}_\text{real}$ / $\bar{d}_\text{gen}$ & $\bar{n}_\text{real}$ / $\bar{n}_\text{gen}$ \\
-\midrule
-\emph{MUTAG} & & & \\
-\quad 1-GNN class 0 & 0.120 & 0.891 & 2.09 / 2.06 & 13.9 / 23.8 \\
-\quad 1-GNN class 1 & 0.094 & 0.893 & 2.24 / 2.23 & 19.8 / 27.3 \\
-\quad 1-2-GNN class 0 & 0.125 & 0.881 & 2.09 / 2.05 & 13.9 / 23.1 \\
-\quad 1-2-GNN class 1 & 0.155 & 0.594 & 2.24 / 2.23 & 19.8 / 24.3 \\
-\midrule
-\emph{PROTEINS} & & & \\
-\quad 1-GNN class 0 & 0.149 & 0.660 & 3.80 / 3.81 & 48.7 / 46.6 \\
-\quad 1-GNN class 1 & 0.213 & 0.537 & 3.64 / 3.73 & 23.7 / 24.0 \\
-\quad 1-2-GNN class 0 & 0.178 & 0.704 & 3.80 / 3.81 & 48.7 / 50.0 \\
-\quad 1-2-GNN class 1 & 0.165 & 0.738 & 3.64 / 3.64 & 23.7 / 29.5 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\subsubsection{Cross-Model Classification}
-
-The most revealing analysis classifies each set of 500 generated graphs with \emph{both} k-GNN classifiers, testing whether explanations produced by one model are recognisable by the other. Table~\ref{tab:cross} reports target class agreement rates, and Figure~\ref{fig:cross_class} visualises the full classification breakdown.
-
-On MUTAG, three of four configurations show high cross-model agreement: 1-GNN class 0 at 90.4\%, 1-GNN class 1 at 91.6\%, and 1-2-GNN class 0 at 100\%. The exception is striking: the 1-2-GNN's Non-Mutagen graphs (class 1) achieve 100\% same-model agreement but only 12.4\% cross-model agreement---the 1-GNN classifies 87.6\% of them as \emph{Mutagen}. The 1-2-GNN, using pairwise structural information, has learned to associate Non-Mutagen with structural features that are invisible to the 1-GNN's simpler node-level decision boundary.
-
-On PROTEINS, all four generators succeed at their target class (same-model agreement $\geq 98.4\%$), enabling a clean cross-model comparison. The most revealing asymmetry is on class 0 (Non-Enzyme): 1-GNN-generated Non-Enzyme graphs achieve 100\% same-model agreement but only 9.4\% cross-model agreement---the 1-2-GNN classifies 90.6\% of them as Enzyme. In contrast, 1-2-GNN-generated Non-Enzyme graphs achieve 98.4\% same-model agreement \emph{and} 100\% cross-model agreement---the 1-GNN also accepts them as Non-Enzyme. On class 1 (Enzyme), by contrast, both models largely agree (98--100\% cross-model), suggesting that some class-defining protein patterns are visible to both architectures. Taken together, the two datasets indicate model-specific explanation families rather than a uniform superiority of one classifier over the other.
-
-\begin{table}[htbp]
-\centering
-\caption{Cross-model classification of generated graphs (500 per class). Same = target class agreement by the generating model's classifier; Cross = agreement by the other model's classifier.}
+\caption{Cross-model classification of generated graphs (500 per class).}
 \label{tab:cross}
 \small
 \begin{tabular}{llcc}
@@ -884,16 +825,16 @@ On PROTEINS, all four generators succeed at their target class (same-model agree
 Generated by & Target class & Same & Cross \\
 \midrule
 \emph{MUTAG} & & & \\
-\quad 1-GNN & Mutagen (c0) & 100\% & 90.4\% \\
-\quad 1-GNN & Non-Mutagen (c1) & 99.8\% & 91.6\% \\
-\quad 1-2-GNN & Mutagen (c0) & 99.8\% & 100\% \\
-\quad 1-2-GNN & Non-Mutagen (c1) & 100\% & 12.4\% \\
+\quad 1-GNN   & Mutagen (c0)      & 100\%  & 90.4\% \\
+\quad 1-GNN   & Non-Mutagen (c1)  & 99.8\% & 91.6\% \\
+\quad 1-2-GNN & Mutagen (c0)      & 99.8\% & 100\%  \\
+\quad 1-2-GNN & Non-Mutagen (c1)  & 100\%  & 12.4\% \\
 \midrule
 \emph{PROTEINS} & & & \\
-\quad 1-GNN & Non-Enzyme (c0) & 100\% & 9.4\% \\
-\quad 1-GNN & Enzyme (c1) & 99.8\% & 99.6\% \\
-\quad 1-2-GNN & Non-Enzyme (c0) & 98.4\% & 100\% \\
-\quad 1-2-GNN & Enzyme (c1) & 100\% & 98.0\% \\
+\quad 1-GNN   & Non-Enzyme (c0)   & 100\%  &  9.4\% \\
+\quad 1-GNN   & Enzyme (c1)       & 99.8\% & 99.6\% \\
+\quad 1-2-GNN & Non-Enzyme (c0)   & 98.4\% & 100\%  \\
+\quad 1-2-GNN & Enzyme (c1)       & 100\%  & 98.0\% \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -909,17 +850,15 @@ Generated by & Target class & Same & Cross \\
 \includegraphics[width=\textwidth]{results/proteins/comparison/figures/cross_classification.png}
 \caption{PROTEINS}
 \end{subfigure}
-\caption{Cross-model classification of generated graphs. Each cell shows the fraction classified into the target class by each model. High same-model agreement (diagonal) with low cross-model agreement (off-diagonal) indicates that the two architectures have learned different decision boundaries.}
+\caption{Cross-model classification of generated graphs. Each cell shows the fraction classified into the target class by each model.}
 \label{fig:cross_class}
 \end{figure}
 
-\subsubsection{Embedding Space Structure}
+Two cells stand out. The 1-2-GNN's Non-Mutagen graphs on MUTAG are accepted as Non-Mutagen by the 1-2-GNN (100\%) but classified as Mutagen by the 1-GNN (cross 12.4\%). Symmetrically, the 1-GNN's Non-Enzyme graphs on PROTEINS are accepted by the 1-GNN (100\%) but classified as Enzyme by the 1-2-GNN (cross 9.4\%). Each classifier has a class whose defining features, as captured by that classifier's generator, are not visible to the other classifier.
 
-Figures~\ref{fig:tsne_mutag} and \ref{fig:tsne_proteins} show t-SNE projections of real and generated graph embeddings in each model's learned representation space.
+\subsubsection{Embedding-space structure}
 
-On MUTAG (Figure~\ref{fig:tsne_mutag}), the generated graphs are cleanly separated by class, but they do not simply fill in the real-data clouds. Instead, each model produces two large generated manifolds that sit away from the much smaller real clusters. The same-model agreement is therefore not coming from faithful sampling of the empirical distribution, but from the generator finding class-consistent regions of embedding space.
-
-The effect is even stronger on PROTEINS (Figure~\ref{fig:tsne_proteins}). In the 1-GNN space, the generated Non-Enzyme and Enzyme graphs occupy detached arcs and islands that only partially overlap the real distribution. In the 1-2-GNN space, the generated graphs collapse into several very tight disconnected prototype islands. These visualisations support a more cautious interpretation of the population-level results: the generators preserve class-discriminative structure well enough to achieve high same-model agreement, but they do not reproduce the full geometry of the real dataset. The generated graphs are best interpreted as model-specific prototypes rather than faithful random samples.
+Figures~\ref{fig:tsne_mutag} and \ref{fig:tsne_proteins} show t-SNE projections of real and generated graph embeddings in each classifier's learned space.
 
 \begin{figure}[htbp]
 \centering
@@ -951,53 +890,48 @@ The effect is even stronger on PROTEINS (Figure~\ref{fig:tsne_proteins}). In the
 \label{fig:tsne_proteins}
 \end{figure}
 
+On MUTAG the generated graphs are well separated by class in each space but do not fill in the real-data clouds; they form their own class-consistent manifolds. On PROTEINS the effect is stronger: in the 1-2-GNN space the generated graphs collapse into tight disconnected prototype islands. Consistent with the high same-model agreement rates, each generator samples a class-discriminative region of its target classifier's embedding space, but the class-level distribution of those samples does not coincide with the real data's distribution. Whether this is a property of the generator, the classifier, or both, the pipeline cannot distinguish.
+
+\subsection{Summary of the comparison}
+
+The three-way comparison shows:
+\begin{itemize}[nosep]
+  \item The 1-GNN and 1-2-GNN each induce a generator that produces high target-class probability ($p \geq 0.92$ in seven of eight cells) and local degree close to the real class mean.
+  \item The node-type composition and graph size distributions of the generated data differ between the two architectures in every (dataset, class) cell, and each architecture diverges from the real data in a direction that is only partially shared with the other.
+  \item Cross-model classification and embedding-space visualisations indicate that each classifier has class-defining features that are \emph{not} recognised by the other classifier (12.4\% and 9.4\% agreement in the asymmetric cells).
+\end{itemize}
+This is evidence that the two architectures internalise different class concepts on these datasets. It is not evidence that one concept is closer to a ground-truth class definition; the pipeline provides no such ground truth. We also do not claim one architecture produces better explanations.
+
 % ============================================================
 % 6. Discussion
 % ============================================================
 \section{Discussion}
 \label{sec:discussion}
 
-\subsection{Different Architectures, Different Representations}
+\subsection{Interpreting the observed divergence}
 
-Our central finding is that the 1-GNN and 1-2-GNN learn \emph{qualitatively different} internal representations of graph classes, even when their classification accuracy is comparable. This is not a story of one architecture producing ``better'' explanations, but of two architectures encoding different structural features---differences that become visible through GIN-Graph's model-level explanation generation.
+The descriptive findings in Section~\ref{sec:qualitative} support a reading of the two architectures as internalising different class concepts. We emphasise that this is a statement about \emph{what the classifiers encode}, not about which encoding is more correct: the pipeline provides no ground truth against which to judge. The cross-model classification results (12.4\% on MUTAG Non-Mutagen, 9.4\% on PROTEINS Non-Enzyme) are the strongest quantitative evidence for this reading, since they show that each classifier has class-defining features not visible to the other. The embedding t-SNE projections in Section~\ref{sec:qualitative} add a caveat: even within each classifier's own space, the generated graphs do not reproduce the real-data geometry, so the same-model agreement rates reflect the generator finding class-consistent regions rather than faithful sampling of the empirical distribution.
 
-On MUTAG, both models achieve identical classification accuracy (89.5\%), yet they generate fundamentally different explanations. The 1-GNN emphasises C/N/O-rich mutagenic structures, while the 1-2-GNN emphasises much more halogen-heavy mutagenic structures. The tracked generator reports confirm that both models can produce valid explanations on both classes (32--41\% validity on class 0 and 78--82\% on class 1), but the \emph{content} of those explanations differs qualitatively. This is perhaps the cleanest evidence that the two architectures learn different things: same accuracy, same dataset, different generated explanations.
+\subsection{Local structure vs.\ population fidelity}
 
-On PROTEINS, the tracked generator reports show complementary strengths rather than a single dominant model. The 1-GNN achieves near-perfect scores on Non-Enzyme ($v = 0.986$), while the 1-2-GNN achieves much higher validity on Enzyme (94\% vs.\ 37\%). This complementary pattern suggests that the node-level and pairwise representations capture different aspects of protein structure.
+The three-way comparison in Section~\ref{sec:qualitative} separates \emph{local structural realism} from \emph{population-level fidelity}: degree distributions are matched closely in every configuration, but graph-size and node-type distributions often are not. A generated graph's local connectivity can look plausible even when the overall population is systematically shifted. This distinction is the main reason we avoid reading any single summary number as a verdict on either architecture; fidelity is class- and configuration-specific, and neither architecture dominates across cells.
 
-The cross-model classification analysis (Section~\ref{sec:comparison}) provides the strongest quantitative evidence. On MUTAG, the 1-2-GNN's Non-Mutagen graphs achieve 100\% same-model agreement but only 12.4\% cross-model agreement---the 1-GNN systematically misclassifies them. On PROTEINS, 1-GNN-generated Non-Enzyme graphs are rejected by the 1-2-GNN (9.4\% cross-model), while 1-2-GNN-generated Non-Enzyme graphs are accepted by both models (98.4\%/100\%). These extreme disagreements---not marginal differences that require error bars---confirm that the two architectures have learned fundamentally different decision boundaries. The 1-2-GNN's richer pairwise feature space enables it to make distinctions that are invisible to the 1-GNN's node-level representations.
-
-\subsection{Qualitative Differences in Generated Explanations}
-
-Beyond the quantitative metrics, the generated explanations reveal qualitative differences in what each model has learned. On MUTAG class 0 (Mutagen), the top-ranked 1-GNN explanations are dominated by carbon, nitrogen, and oxygen (42.9\% C, 13.9\% N, 13.2\% O), whereas the top-ranked 1-2-GNN explanations are much more halogen-heavy (31.1\% F, 1.1\% Br) and nearly eliminate nitrogen (0.4\% N). This visual and quantitative difference is consistent with the population-level comparison, where the 1-2-GNN class-0 generator overproduces fluorine and bromine relative to the real class far more strongly than the 1-GNN. Both explanation families remain recognisably mutagenic, but the divergence demonstrates that the two architectures learn fundamentally different internal representations of the same chemical class.
-
-On MUTAG class 1 (Non-Mutagen), both models converge on carbon-dominated backbones, but the saved top-ranked explanations again differ sharply in composition. The 1-GNN top set is split between carbon and oxygen (38.6\% C, 38.2\% O) and introduces substantial iodine (17.9\%), whereas the 1-2-GNN top set is more conventional and concentrated on carbon, oxygen, and nitrogen (78.6\% C, 14.3\% O, 7.1\% N). This convergence on the easier class is consistent with the higher validity rates: the Non-Mutagen class has more uniform structural patterns that the generator can capture.
-
-On PROTEINS, both models generate secondary-structure distributions built mainly from helix and sheet nodes, but they differ sharply by class. The 1-2-GNN class 0 generator is the closest match to the real Non-Enzyme distribution, whereas class 1 is much less faithful and becomes strongly sheet-heavy. The 1-GNN produces high-quality Non-Enzyme explanations but struggles with Enzyme validity (37\%), while the 1-2-GNN achieves high validity on both classes (100\% and 94\%) but with lower overall fidelity on class 1 ($s = 0.151$). This suggests the two architectures focus on different structural aspects of protein graphs---the 1-GNN's node-level features capture Non-Enzyme patterns effectively, while the 1-2-GNN's pairwise features enable broader Enzyme generation but with less embedding-space alignment.
-
-\subsection{Local Structure vs.\ Population Fidelity}
-
-The generated-dataset comparison reveals an important distinction between \emph{local structural realism} and \emph{population-level fidelity}. Across both datasets, the generators preserve degree distributions much better than graph-size distributions. This means that the local connectivity pattern of a typical generated graph often looks plausible even when the overall population of generated graphs is systematically shifted toward larger or more regular structures.
-
-This pattern is clearest on MUTAG, where all four generators remain oversized despite matching average degree closely. The strongest positive case is 1-2-GNN on class 1 (Non-Mutagen): its node-type proportions and graph sizes are closer to the real class than the corresponding 1-GNN generator. However, this advantage is not universal. On MUTAG class 0, the 1-2-GNN overproduces halogens and diverges more strongly from the real atom distribution than the 1-GNN. On PROTEINS, 1-2-GNN class 0 is the cleanest structural match, while 1-2-GNN class 1 is substantially less faithful than its class-0 counterpart. The most defensible interpretation is therefore not that 1-2-GNN is uniformly ``better'', but that the two architectures produce different prototype families and that the higher-order model yields the clearest fidelity gain only in selected cases.
-
-\subsection{The Granularity Problem}
+\subsection{The granularity problem}
 
 Most generated explanations have granularity $\kappa \approx 0$, meaning they remain close to full-graph prototypes rather than small substructures. This is a structural limitation of the GIN-Graph approach: the generator produces graphs of a fixed maximum size $N$, and the Gumbel-Softmax sampling tends to activate many nodes. For MUTAG ($N = 28$, average graph $\sim$18 nodes), the generated populations still average 23--27 active nodes. For PROTEINS ($N = 50$, average graph $\sim$26 nodes), the class 0 generators remain near the size cap (46.6 nodes for 1-GNN and 50.0 for 1-2-GNN), while the class 1 generators are somewhat smaller (24.0 and 29.5 nodes) but still do not behave like sparse subgraph explanations.
 
 Model-level explanations are inherently coarse-grained: they answer ``what does a typical class member look like?'' rather than ``which substructure drives the prediction?'' This is a property of the method, not a flaw---the two questions require different explanation approaches.
 
 \subsection{Limitations}
+\label{sec:limitations}
 
-Several limitations qualify our findings:
+Several limitations qualify the findings:
 
 \textbf{Single seed, no error bars.} All experiments use a single data split (seed 42) without cross-validation. With only 38 test graphs on MUTAG, the identical 89.5\% best accuracy for both models could be coincidence---a difference of one misclassified graph changes accuracy by 2.6 percentage points. Similarly, the validity differences on MUTAG (82\% vs.\ 78\%, i.e.\ 4 graphs out of 100) may not be statistically significant without variance estimates across seeds, which is why we focus on the \emph{qualitative} divergence in generated explanations rather than these marginal quantitative differences. The cross-model classification results (9.4\%, 12.4\% agreement) are extreme enough to be meaningful even without error bars. The PROTEINS results are more robust (224 test graphs), but the complementary class-specific pattern could also reflect data split artefacts.
 
 \textbf{No cross-validation.} Best test accuracy is reported as the maximum over epochs (early stopping by oracle), which overestimates generalisation performance. A more rigorous evaluation would use a held-out validation set for model selection.
 
-\textbf{Classifier--generator coupling.} GIN-Graph explanations are shaped by how the classifier's internal representations interact with the generator's optimisation landscape. The 1-2-GNN class 0 (Non-Enzyme) generator on PROTEINS achieves moderate prediction probability ($p = 0.564$), lower than the 1-GNN's near-perfect $p = 0.986$ on the same class. We attribute this gap to an \emph{embedding dimensionality mismatch}: the 1-2-GNN classifier operates on a concatenated embedding $\mathbf{h}_G = [\mathbf{h}_G^{(1)} \| \mathbf{h}_G^{(2)}] \in \mathbb{R}^{128}$, double the 1-GNN's $\mathbb{R}^{64}$, while the generator uses the same architecture in both cases. The 2-GNN component's response to adjacency changes is mediated by pair-level aggregation (Equations~\ref{eq:dense-2gnn-agg1}--\ref{eq:dense-2gnn-agg2}), creating a more complex gradient landscape. However, with graph size and node type regularisation, the generator achieves sufficient prediction probability for meaningful cross-model analysis (98.4\% same-model agreement).
-
-The 1-GNN class 1 (Enzyme) generator (37\% validity, $s = 0.356$) exhibits a different pattern: $p = 0.919$ indicates the generator can find the target class region, but the generated graphs diverge from the real Enzyme embedding centroid. This is a fidelity problem (the generated graphs are atypical Enzyme structures) rather than a guidance problem (the classifier does recognise them as Enzyme).
+\textbf{Classifier--generator coupling.} The generator's ability to drive $p$ toward 1 depends on the classifier's embedding geometry. The 1-2-GNN operates on a concatenated embedding $\mathbf{h}_G = [\mathbf{h}_G^{(1)} \| \mathbf{h}_G^{(2)}] \in \mathbb{R}^{128}$ with pair-level aggregation (Equations~\ref{eq:dense-2gnn-agg1}--\ref{eq:dense-2gnn-agg2}), which yields a more complex gradient landscape than the 1-GNN's $\mathbb{R}^{64}$. The lower $p = 0.564$ on PROTEINS Non-Enzyme (versus the 1-GNN's $p = 0.986$) is consistent with this; none of the observed comparisons should be read as isolating the classifier from the generator.
 
 \textbf{Generator--classifier output space mismatch.} A fundamental consideration is that GIN-Graph was designed for standard (1-WL) GNNs, and its generator architecture reflects this. The generator outputs an adjacency matrix $\tilde{A}$ and node feature matrix $\tilde{X}$---quantities that a 1-GNN directly consumes. A 1-GNN's decisions are based on node features and local neighbourhoods, which the generator can target directly: ``place nitrogen here, connect it to these carbons.'' The 1-2-GNN, however, makes decisions in a pairwise feature space derived from all $\binom{n}{2}$ node pairs. The generator has no mechanism to directly control pair-level representations---it can only influence them indirectly through edge and node choices. Despite this, the generator achieves high same-model agreement for all configurations ($\geq 94\%$) after structural regularisation, demonstrating that the indirect optimisation path is viable. However, the consistently lower prediction probability for the 1-2-GNN ($p = 0.564$ vs.\ $0.986$ on PROTEINS class 0) suggests that a higher-order--aware generator---one that directly produces pair-level features---could improve results further.
 
