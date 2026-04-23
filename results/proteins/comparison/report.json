@@ -1,55 +1,55 @@
 {
   "dataset": "proteins",
-  "num_samples_per_class": 500,
-  "generation_time_seconds": 6.5,
+  "num_samples_per_class": 1000,
+  "generation_time_seconds": 7.1,
   "structural_comparison": {
     "1gnn_class0": {
-      "degree_ks_stat": 0.14945174587204407,
-      "degree_ks_pvalue": 1.221220198898438e-237,
+      "degree_ks_stat": 0.15021544377295032,
+      "degree_ks_pvalue": 0.0,
       "size_ks_stat": 0.6596558317399618,
-      "size_ks_pvalue": 7.674504597166811e-106,
+      "size_ks_pvalue": 1.9725339936160938e-142,
       "real_mean_degree": 3.8046395201730094,
-      "gen_mean_degree": 3.814760203500008,
+      "gen_mean_degree": 3.8138040623627587,
       "real_mean_size": 48.69980879541109,
-      "gen_mean_size": 46.57,
+      "gen_mean_size": 46.651,
       "real_node_type_dist": {
         "H": 0.5036906164114645,
         "S": 0.46486062033765213,
         "C": 0.031448763250883395
       },
       "gen_node_type_dist": {
-        "H": 0.5426240068713765,
-        "S": 0.4573759931286236,
+        "H": 0.5424106664380185,
+        "S": 0.4575893335619815,
         "C": 0.0
       }
     },
     "1gnn_class1": {
-      "degree_ks_stat": 0.212838598508587,
-      "degree_ks_pvalue": 6.477074590600558e-201,
+      "degree_ks_stat": 0.212727557675634,
+      "degree_ks_pvalue": 2.8314117937267574e-254,
       "size_ks_stat": 0.5367847411444142,
-      "size_ks_pvalue": 1.8113233017683244e-56,
+      "size_ks_pvalue": 1.018237211033571e-71,
       "real_mean_degree": 3.6392529780565575,
-      "gen_mean_degree": 3.7255006301880065,
+      "gen_mean_degree": 3.7215110945126155,
       "real_mean_size": 23.69209809264305,
-      "gen_mean_size": 24.002,
+      "gen_mean_size": 24.125,
       "real_node_type_dist": {
         "H": 0.4067855089131685,
         "S": 0.562277170787809,
         "C": 0.030937320299022426
       },
       "gen_node_type_dist": {
-        "H": 0.2447296058661778,
-        "S": 0.7552703941338221,
-        "C": 0.0
+        "H": 0.248,
+        "S": 0.7519585492227979,
+        "C": 4.145077720207254e-05
       }
     },
     "12gnn_class0": {
-      "degree_ks_stat": 0.17815089124460148,
+      "degree_ks_stat": 0.1780108912446015,
       "degree_ks_pvalue": 0.0,
       "size_ks_stat": 0.7036328871892925,
-      "size_ks_pvalue": 4.1342988527579707e-122,
+      "size_ks_pvalue": 1.7860234448238948e-164,
       "real_mean_degree": 3.8046395201730094,
-      "gen_mean_degree": 3.80568,
+      "gen_mean_degree": 3.8049999999999997,
       "real_mean_size": 48.69980879541109,
       "gen_mean_size": 50.0,
       "real_node_type_dist": {
@@ -58,28 +58,28 @@
         "C": 0.031448763250883395
       },
       "gen_node_type_dist": {
-        "H": 0.50884,
-        "S": 0.47116,
+        "H": 0.50908,
+        "S": 0.47092,
         "C": 0.02
       }
     },
     "12gnn_class1": {
-      "degree_ks_stat": 0.16536741338950683,
-      "degree_ks_pvalue": 2.867278204116228e-131,
-      "size_ks_stat": 0.7384196185286104,
-      "size_ks_pvalue": 6.158198441950507e-113,
+      "degree_ks_stat": 0.16638823893425417,
+      "degree_ks_pvalue": 4.027065428179109e-163,
+      "size_ks_stat": 0.7374196185286104,
+      "size_ks_pvalue": 5.666214920606443e-144,
       "real_mean_degree": 3.6392529780565575,
-      "gen_mean_degree": 3.64215403233596,
+      "gen_mean_degree": 3.6408476775770025,
       "real_mean_size": 23.69209809264305,
-      "gen_mean_size": 29.538,
+      "gen_mean_size": 29.619,
       "real_node_type_dist": {
         "H": 0.4067855089131685,
         "S": 0.562277170787809,
         "C": 0.030937320299022426
       },
       "gen_node_type_dist": {
-        "H": 0.11023088902430767,
-        "S": 0.8897691109756923,
+        "H": 0.11320436206489078,
+        "S": 0.8867956379351092,
         "C": 0.0
       }
     }
@@ -90,27 +90,27 @@
         "class0_rate": 1.0,
         "class1_rate": 0.0,
         "target_agreement": 1.0,
-        "mean_target_prob": 0.9859794974327087
+        "mean_target_prob": 0.9861518144607544
       },
       "classified_by_12gnn": {
-        "class0_rate": 0.094,
-        "class1_rate": 0.906,
-        "target_agreement": 0.094,
-        "mean_target_prob": 0.3878400921821594
+        "class0_rate": 0.14,
+        "class1_rate": 0.86,
+        "target_agreement": 0.14,
+        "mean_target_prob": 0.3938671052455902
       }
     },
     "1gnn_class1": {
       "classified_by_1gnn": {
-        "class0_rate": 0.002,
-        "class1_rate": 0.998,
-        "target_agreement": 0.998,
-        "mean_target_prob": 0.9130710363388062
+        "class0_rate": 0.001,
+        "class1_rate": 0.999,
+        "target_agreement": 0.999,
+        "mean_target_prob": 0.9157063961029053
       },
       "classified_by_12gnn": {
-        "class0_rate": 0.004,
-        "class1_rate": 0.996,
-        "target_agreement": 0.996,
-        "mean_target_prob": 0.959080159664154
+        "class0_rate": 0.012,
+        "class1_rate": 0.988,
+        "target_agreement": 0.988,
+        "mean_target_prob": 0.9567883014678955
       }
     },
     "12gnn_class0": {
@@ -118,60 +118,47 @@
         "class0_rate": 1.0,
         "class1_rate": 0.0,
         "target_agreement": 1.0,
-        "mean_target_prob": 0.7330717444419861
+        "mean_target_prob": 0.7336251139640808
       },
       "classified_by_12gnn": {
-        "class0_rate": 0.984,
-        "class1_rate": 0.016,
-        "target_agreement": 0.984,
-        "mean_target_prob": 0.5615807175636292
+        "class0_rate": 0.976,
+        "class1_rate": 0.024,
+        "target_agreement": 0.976,
+        "mean_target_prob": 0.562885046005249
       }
     },
     "12gnn_class1": {
       "classified_by_1gnn": {
-        "class0_rate": 0.02,
-        "class1_rate": 0.98,
-        "target_agreement": 0.98,
-        "mean_target_prob": 0.8851401209831238
+        "class0_rate": 0.015,
+        "class1_rate": 0.985,
+        "target_agreement": 0.985,
+        "mean_target_prob": 0.8868978023529053
       },
       "classified_by_12gnn": {
         "class0_rate": 0.0,
         "class1_rate": 1.0,
         "target_agreement": 1.0,
-        "mean_target_prob": 0.9976515173912048
+        "mean_target_prob": 0.9976063370704651
       }
     }
   },
   "cross_agreement": {
     "1gnn_class0": {
       "same_model": 1.0,
-      "cross_model": 0.094
+      "cross_model": 0.14
     },
     "1gnn_class1": {
-      "same_model": 0.998,
-      "cross_model": 0.996
+      "same_model": 0.999,
+      "cross_model": 0.988
     },
     "12gnn_class0": {
-      "same_model": 0.984,
+      "same_model": 0.976,
       "cross_model": 1.0
     },
     "12gnn_class1": {
       "same_model": 1.0,
-      "cross_model": 0.98
+      "cross_model": 0.985
     }
   },
-  "embedding_analysis": {
-    "1gnn": {
-      "embedding_dim": 64,
-      "n_real": 890,
-      "n_gen_c0": 500,
-      "n_gen_c1": 500
-    },
-    "12gnn": {
-      "embedding_dim": 128,
-      "n_real": 890,
-      "n_gen_c0": 500,
-      "n_gen_c1": 500
-    }
-  }
+  "embedding_analysis": null
 }

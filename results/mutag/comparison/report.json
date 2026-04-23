@@ -1,17 +1,17 @@
 {
   "dataset": "mutag",
-  "num_samples_per_class": 500,
-  "generation_time_seconds": 5.5,
+  "num_samples_per_class": 1000,
+  "generation_time_seconds": 5.9,
   "structural_comparison": {
     "1gnn_class0": {
-      "degree_ks_stat": 0.11997228986480812,
-      "degree_ks_pvalue": 4.527166944634723e-08,
-      "size_ks_stat": 0.8910434782608696,
-      "size_ks_pvalue": 8.09656967796917e-39,
+      "degree_ks_stat": 0.12090542583571307,
+      "degree_ks_pvalue": 2.1502902669334206e-08,
+      "size_ks_stat": 0.8950434782608696,
+      "size_ks_pvalue": 4.105316324786273e-42,
       "real_mean_degree": 2.094172308711614,
-      "gen_mean_degree": 2.0568193888814106,
+      "gen_mean_degree": 2.0681509975725954,
       "real_mean_size": 13.91304347826087,
-      "gen_mean_size": 23.818,
+      "gen_mean_size": 23.812,
       "real_node_type_dist": {
         "C": 0.6421875,
         "N": 0.1296875,
@@ -22,24 +22,24 @@
         "Br": 0.0015625
       },
       "gen_node_type_dist": {
-        "C": 0.5724242169787556,
-        "N": 0.10890922831471996,
-        "O": 0.16978755563019565,
-        "F": 0.062473759341674366,
+        "C": 0.5710566101125483,
+        "N": 0.11070048714933647,
+        "O": 0.1695783638501596,
+        "F": 0.06253149672434066,
         "I": 0.0,
-        "Cl": 0.08640523973465446,
+        "Cl": 0.08613304216361499,
         "Br": 0.0
       }
     },
     "1gnn_class1": {
-      "degree_ks_stat": 0.09405722670579608,
-      "degree_ks_pvalue": 3.007136803735361e-14,
-      "size_ks_stat": 0.8926923076923077,
-      "size_ks_pvalue": 1.77338185316107e-76,
+      "degree_ks_stat": 0.09556776556776558,
+      "degree_ks_pvalue": 1.0679152484277845e-15,
+      "size_ks_stat": 0.8946923076923077,
+      "size_ks_pvalue": 7.095080686814605e-87,
       "real_mean_degree": 2.2371238748087405,
-      "gen_mean_degree": 2.2329138542938542,
+      "gen_mean_degree": 2.23184568986569,
       "real_mean_size": 19.83653846153846,
-      "gen_mean_size": 27.26,
+      "gen_mean_size": 27.3,
       "real_node_type_dist": {
         "C": 0.7324285021812894,
         "N": 0.09258361609306835,
@@ -50,24 +50,24 @@
         "Br": 0.0004847309743092584
       },
       "gen_node_type_dist": {
-        "C": 0.633969185619956,
-        "N": 0.07586206896551724,
-        "O": 0.1928833455612619,
-        "F": 0.0202494497432135,
-        "I": 0.07696258253851798,
-        "Cl": 7.336757153338224e-05,
+        "C": 0.6337362637362637,
+        "N": 0.07527472527472527,
+        "O": 0.19087912087912087,
+        "F": 0.02128205128205128,
+        "I": 0.07857142857142857,
+        "Cl": 0.0002564102564102564,
         "Br": 0.0
       }
     },
     "12gnn_class0": {
-      "degree_ks_stat": 0.12520560990390445,
-      "degree_ks_pvalue": 9.708234266593097e-09,
-      "size_ks_stat": 0.8813043478260869,
-      "size_ks_pvalue": 1.688613310497888e-37,
+      "degree_ks_stat": 0.11859154321254267,
+      "degree_ks_pvalue": 4.31398105078175e-08,
+      "size_ks_stat": 0.8863043478260869,
+      "size_ks_pvalue": 9.883131619273055e-41,
       "real_mean_degree": 2.094172308711614,
-      "gen_mean_degree": 2.048900281462803,
+      "gen_mean_degree": 2.0695179597667357,
       "real_mean_size": 13.91304347826087,
-      "gen_mean_size": 23.102,
+      "gen_mean_size": 23.153,
       "real_node_type_dist": {
         "C": 0.6421875,
         "N": 0.1296875,
@@ -78,24 +78,24 @@
         "Br": 0.0015625
       },
       "gen_node_type_dist": {
-        "C": 0.45762271664790927,
-        "N": 0.0006925807289412172,
-        "O": 0.12821400744524283,
-        "F": 0.2670764435979569,
-        "I": 0.03601419790494329,
+        "C": 0.45665788450740724,
+        "N": 0.0007342461020170173,
+        "O": 0.12534012870902259,
+        "F": 0.2692091737571805,
+        "I": 0.03420723016455751,
         "Cl": 0.0,
-        "Br": 0.11038005367500649
+        "Br": 0.11385133675981514
       }
     },
     "12gnn_class1": {
-      "degree_ks_stat": 0.1546915050706983,
-      "degree_ks_pvalue": 2.627130014562081e-37,
-      "size_ks_stat": 0.5942307692307692,
-      "size_ks_pvalue": 4.142633996861078e-29,
+      "degree_ks_stat": 0.1497931716849905,
+      "degree_ks_pvalue": 1.0135238352388852e-37,
+      "size_ks_stat": 0.6167692307692307,
+      "size_ks_pvalue": 1.1310345358897938e-34,
       "real_mean_degree": 2.2371238748087405,
-      "gen_mean_degree": 2.2271013766841685,
+      "gen_mean_degree": 2.24616754948755,
       "real_mean_size": 19.83653846153846,
-      "gen_mean_size": 24.266,
+      "gen_mean_size": 24.321,
       "real_node_type_dist": {
         "C": 0.7324285021812894,
         "N": 0.09258361609306835,
@@ -106,13 +106,13 @@
         "Br": 0.0004847309743092584
       },
       "gen_node_type_dist": {
-        "C": 0.8002967114481168,
-        "N": 0.02901178603807797,
-        "O": 0.17069150251380533,
+        "C": 0.7982402039389828,
+        "N": 0.029233995312692735,
+        "O": 0.17248468401792688,
         "F": 0.0,
         "I": 0.0,
         "Cl": 0.0,
-        "Br": 0.0
+        "Br": 4.1116730397598784e-05
       }
     }
   },
@@ -122,88 +122,75 @@
         "class0_rate": 1.0,
         "class1_rate": 0.0,
         "target_agreement": 1.0,
-        "mean_target_prob": 0.9999992251396179
+        "mean_target_prob": 1.0
       },
       "classified_by_12gnn": {
-        "class0_rate": 0.904,
-        "class1_rate": 0.096,
-        "target_agreement": 0.904,
-        "mean_target_prob": 0.9041790962219238
+        "class0_rate": 0.898,
+        "class1_rate": 0.102,
+        "target_agreement": 0.898,
+        "mean_target_prob": 0.8977881073951721
       }
     },
     "1gnn_class1": {
       "classified_by_1gnn": {
-        "class0_rate": 0.002,
-        "class1_rate": 0.998,
-        "target_agreement": 0.998,
-        "mean_target_prob": 0.9980001449584961
+        "class0_rate": 0.001,
+        "class1_rate": 0.999,
+        "target_agreement": 0.999,
+        "mean_target_prob": 0.9990018606185913
       },
       "classified_by_12gnn": {
-        "class0_rate": 0.084,
-        "class1_rate": 0.916,
-        "target_agreement": 0.916,
-        "mean_target_prob": 0.9154226779937744
+        "class0_rate": 0.095,
+        "class1_rate": 0.905,
+        "target_agreement": 0.905,
+        "mean_target_prob": 0.9063661694526672
       }
     },
     "12gnn_class0": {
       "classified_by_1gnn": {
+        "class0_rate": 0.999,
+        "class1_rate": 0.001,
+        "target_agreement": 0.999,
+        "mean_target_prob": 0.9991660714149475
+      },
+      "classified_by_12gnn": {
         "class0_rate": 1.0,
         "class1_rate": 0.0,
         "target_agreement": 1.0,
         "mean_target_prob": 1.0
-      },
-      "classified_by_12gnn": {
-        "class0_rate": 0.998,
-        "class1_rate": 0.002,
-        "target_agreement": 0.998,
-        "mean_target_prob": 0.9980000257492065
       }
     },
     "12gnn_class1": {
       "classified_by_1gnn": {
-        "class0_rate": 0.876,
-        "class1_rate": 0.124,
-        "target_agreement": 0.124,
-        "mean_target_prob": 0.12618476152420044
+        "class0_rate": 0.877,
+        "class1_rate": 0.123,
+        "target_agreement": 0.123,
+        "mean_target_prob": 0.12435505539178848
       },
       "classified_by_12gnn": {
         "class0_rate": 0.0,
         "class1_rate": 1.0,
         "target_agreement": 1.0,
-        "mean_target_prob": 0.9999951720237732
+        "mean_target_prob": 0.9999122023582458
       }
     }
   },
   "cross_agreement": {
     "1gnn_class0": {
       "same_model": 1.0,
-      "cross_model": 0.904
+      "cross_model": 0.898
     },
     "1gnn_class1": {
-      "same_model": 0.998,
-      "cross_model": 0.916
+      "same_model": 0.999,
+      "cross_model": 0.905
     },
     "12gnn_class0": {
-      "same_model": 0.998,
-      "cross_model": 1.0
+      "same_model": 1.0,
+      "cross_model": 0.999
     },
     "12gnn_class1": {
       "same_model": 1.0,
-      "cross_model": 0.124
+      "cross_model": 0.123
     }
   },
-  "embedding_analysis": {
-    "1gnn": {
-      "embedding_dim": 64,
-      "n_real": 150,
-      "n_gen_c0": 500,
-      "n_gen_c1": 500
-    },
-    "12gnn": {
-      "embedding_dim": 128,
-      "n_real": 150,
-      "n_gen_c0": 500,
-      "n_gen_c1": 500
-    }
-  }
+  "embedding_analysis": null
 }

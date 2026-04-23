@@ -2,13 +2,16 @@
 """Compare GIN-Graph generated datasets against real MUTAG/PROTEINS data.
 
 Usage:
-    python compare_datasets.py --dataset mutag --num_samples 500
-    python compare_datasets.py --dataset proteins --num_samples 500
+    python compare_datasets.py --dataset mutag --num_samples 1000
+    python compare_datasets.py --dataset proteins --num_samples 1000
 
-Generates 4 synthetic datasets (2 models x 2 classes), then runs:
+Generates 4 synthetic datasets (2 models x 2 classes), then runs three
+population-level analyses:
   A) Structural property comparison (degree, node types, graph size)
   B) Cross-model classification (classify generated graphs with both models)
-  C) Embedding space visualization (t-SNE of real vs generated)
+  C) Population-level structural fingerprints (cycle counts, node-type
+     co-occurrence, degree-by-type) — these compare the full generated
+     populations against real, not cherry-picked top examples.
 
 Outputs go to results/{dataset}/comparison/
 """
@@ -658,8 +661,18 @@ def main():
     parser.add_argument('--dataset', type=str, default='mutag',
                         choices=['mutag', 'proteins'],
                         help='Dataset to analyze')
-    parser.add_argument('--num_samples', type=int, default=500,
-                        help='Number of graphs per class per model')
+    parser.add_argument('--num_samples', type=int, default=1000,
+                        help='Number of graphs per class per model. The '
+                             'qualitative analysis in §5.B compares full '
+                             'populations of this size; smaller samples are '
+                             'noise-dominated for the per-class structural '
+                             'fingerprints.')
+    parser.add_argument('--skip_tsne', action='store_true', default=True,
+                        help='Skip t-SNE visualisation (default: True). '
+                             'The 2D projection is not used in §5.B; '
+                             'pass --no-skip_tsne to recompute it.')
+    parser.add_argument('--no-skip_tsne', dest='skip_tsne',
+                        action='store_false')
     parser.add_argument('--checkpoint_dir', type=str, default='./checkpoints')
     parser.add_argument('--gin_checkpoint_dir', type=str, default='./gin_checkpoints')
     parser.add_argument('--output_dir', type=str, default='./results')
@@ -715,10 +728,14 @@ def main():
     cross_results = run_cross_classification(
         generated, kgnns, data_config, device, handler, fig_dir)
 
-    # ── Step 5: Embedding space visualization ────────────────────────
-    print("\n[5/5] Embedding space visualization...")
-    embedding_results = run_embedding_analysis(
-        generated, kgnns, train_dataset, device, handler, fig_dir)
+    # ── Step 5: Embedding space visualization (optional) ─────────────
+    if args.skip_tsne:
+        print("\n[5/5] Skipping t-SNE (use --no-skip_tsne to recompute).")
+        embedding_results = None
+    else:
+        print("\n[5/5] Embedding space visualization...")
+        embedding_results = run_embedding_analysis(
+            generated, kgnns, train_dataset, device, handler, fig_dir)
 
     # ── Save report ──────────────────────────────────────────────────
     report = {
