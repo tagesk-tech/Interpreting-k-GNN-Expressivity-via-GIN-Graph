@@ -1,0 +1,14 @@
+{
+  "model": "12gnn",
+  "dataset": "proteins",
+  "num_params": 49858,
+  "hidden_dim": 64,
+  "input_dim": 3,
+  "output_dim": 2,
+  "train_loss": 0.5559737671698842,
+  "train_acc": 0.7303370786516854,
+  "test_loss": 0.5285799631050655,
+  "test_acc": 0.7309417040358744,
+  "best_test_acc": 0.7892376681614349,
+  "best_epoch": 75
+}
