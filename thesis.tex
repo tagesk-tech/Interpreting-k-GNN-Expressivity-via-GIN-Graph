@@ -654,7 +654,7 @@ PROTEINS & 1 (Non-Enzyme)     & 1-2-GNN & 0.524 & 0.151 & 0.998 & 0.961 \\
 
 For each (dataset, class) cell, we describe what the real class-$c$ graphs look like, then what the 1-GNN-generated and 1-2-GNN-generated class-$c$ graphs look like under the same structural summaries. The statistics come from \textbf{1000 generated graphs per configuration}; no retraining is performed. Sample sizes below 500 are too noisy to separate the per-class structural fingerprints from per-draw randomness, so we standardise on 1000.
 
-We make a deliberate methodological choice in this section: \emph{we do not characterise the generators by inspecting their top-ranked individual graphs.} The generator maps a random latent vector to one example at a time, and ranking those by validation score selects for the random draws that happen to land highest -- a small, biased window onto what the generator has actually internalised. Instead, every claim in this section is supported by an aggregate over the full 1000-sample population: composition tables, edge-type co-occurrence matrices, exact simple-cycle counts. The thresholded adjacency is symmetric and zero on the diagonal in every case; isolated nodes are dropped before any per-graph statistic is computed.
+We make a deliberate methodological choice in this section: \emph{we do not characterise the generators by inspecting their top-ranked individual graphs.} The generator maps a random latent vector to one example at a time, and ranking those by validation score selects for the random draws that happen to land highest -- a small, biased window onto what the generator has actually internalised. Instead, every claim in this section is supported by an aggregate over the full 1000-sample population: composition tables, edge-type co-occurrence shifts, exact simple-cycle counts. The thresholded adjacency is symmetric and zero on the diagonal in every case; isolated nodes are dropped before any per-graph statistic is computed.
 
 \subsubsection{MUTAG}
 \label{sec:mutag_results}
@@ -714,12 +714,12 @@ Class & Source & 3-cycles & 4-cycles & 5-cycles & 6-cycles \\
 \label{fig:mutag-cycles}
 \end{figure}
 
-\paragraph{Edge-type co-occurrence fingerprint.} Cycles describe local topology; the edge-type co-occurrence matrix describes which atom pairs the generator places at the two ends of each edge. Figure~\ref{fig:mutag-edge-pairs} shows real, generated, and difference matrices side by side for the 1-2-GNN generator. The class-1 panel makes the generator's bias visible: it concentrates almost all bonds on the C-C, C-O, and C-N entries, dropping the rare bonds entirely.
+\paragraph{Edge-type co-occurrence fingerprint.} Cycles describe local topology; edge-type co-occurrence describes which atom pairs the generator places at the two ends of each edge. Figure~\ref{fig:mutag-edge-pairs} shows the largest generator-minus-real shifts for the 1-2-GNN generator, in percentage points. The class-1 panel makes the generator's bias visible: it concentrates bonds on common C/O/N backbone pairs and drops rare atom-pair types.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/mutag/comparison/figures/fingerprint_edge_pairs_12gnn.png}
-\caption{MUTAG edge-type co-occurrence fingerprint for the 1-2-GNN generator. Each $7\!\times\!7$ matrix is a probability distribution over unordered atom-pair types on the edges of 1000 generated (or all real) graphs. Right column: gen $-$ real difference. The 1-GNN counterpart figure is referenced in Appendix~A and tells a similar story, with halogen-bearing entries shifted in different directions.}
+\caption{MUTAG edge-type co-occurrence fingerprint for the 1-2-GNN generator. Bars show the largest generated-minus-real changes in unordered atom-pair edge shares, in percentage points, over 1000 generated graphs per class. Positive bars are over-produced by the generator; negative bars are under-produced.}
 \label{fig:mutag-edge-pairs}
 \end{figure}
 
@@ -783,12 +783,12 @@ Class & Source & 3-cycles & 4-cycles & 5-cycles & 6-cycles \\
 \label{fig:proteins-cycles}
 \end{figure}
 
-\paragraph{Edge-type co-occurrence fingerprint.} Figure~\ref{fig:proteins-edge-pairs} shows the secondary-structure pair distribution on edges for the 1-2-GNN generator. The class-1 panel concentrates almost all edge mass on the Sheet-Sheet entry (S-S), in line with the table's 88.7\% Sheet share, while the real distribution spreads more evenly between H, S, and C. The 1-GNN counterpart on the same panel shows a less extreme but directionally similar Sheet bias (75.2\% Sheet, 24.8\% Helix), with no Coil/Turn entries.
+\paragraph{Edge-type co-occurrence fingerprint.} Figure~\ref{fig:proteins-edge-pairs} shows the largest secondary-structure pair shifts on edges for the 1-2-GNN generator. The class-1 panel shows the main effect directly: Sheet-Sheet edges are over-produced, while Helix-Helix and Helix-Sheet edges are under-produced relative to real PROTEINS. This matches the table's 88.7\% Sheet share and shows that the generator collapses toward a Sheet-heavy prototype.
 
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/proteins/comparison/figures/fingerprint_edge_pairs_12gnn.png}
-\caption{PROTEINS edge-type co-occurrence fingerprint for the 1-2-GNN generator. Each $3\!\times\!3$ matrix is a probability distribution over unordered secondary-structure pair types on the edges of 1000 generated (or all real) graphs of the indicated class. Right column: gen $-$ real difference.}
+\caption{PROTEINS edge-type co-occurrence fingerprint for the 1-2-GNN generator. Bars show the largest generated-minus-real changes in unordered secondary-structure edge-pair shares, in percentage points, over 1000 generated graphs per class. Positive bars are over-produced by the generator; negative bars are under-produced.}
 \label{fig:proteins-edge-pairs}
 \end{figure}
 
@@ -840,7 +840,7 @@ Generated by & Target class & Same & Cross \\
 
 Two cells stand out. The 1-2-GNN's Mutagen graphs on MUTAG are accepted as Mutagen by the 1-2-GNN (100\%) but classified as Non-Mutagen by the 1-GNN (cross 12.3\%). Symmetrically, the 1-GNN's Enzyme graphs on PROTEINS are accepted by the 1-GNN (100\%) but classified as Non-Enzyme by the 1-2-GNN (cross 14.0\%). Each classifier has a class whose defining features, as captured by that classifier's generator, are not visible to the other classifier.
 
-We do not include an embedding-space t-SNE projection in this section. The cross-model classification rates above already give a quantitative answer to the question \emph{``do the two classifiers see the generated graphs as the same class?''}, computed in the 64-dimensional embedding space without a non-linear projection step. A 2D t-SNE plot would only restate that answer visually, but the perplexity choice and the projection's distortion of distances make the picture harder to interpret -- and we found earlier in the project that when the generated populations collapsed into tight clusters, the t-SNE rendering visually exaggerated the gap to real data far beyond what cross-classification or embedding-similarity numbers supported. The aggregate fingerprints in this section (composition tables, cycle counts, edge-pair matrices, cross-classification rates) are computed in the original space and so we treat them as authoritative.
+We do not include an embedding-space t-SNE projection in this section. The cross-model classification rates above already give a quantitative answer to the question \emph{``do the two classifiers see the generated graphs as the same class?''}, computed in the 64-dimensional embedding space without a non-linear projection step. A 2D t-SNE plot would only restate that answer visually, but the perplexity choice and the projection's distortion of distances make the picture harder to interpret -- and we found earlier in the project that when the generated populations collapsed into tight clusters, the t-SNE rendering visually exaggerated the gap to real data far beyond what cross-classification or embedding-similarity numbers supported. The aggregate fingerprints in this section (composition tables, cycle counts, edge-pair shift summaries, cross-classification rates) are computed in the original space and so we treat them as authoritative.
 
 \subsection{Summary of the comparison}
 

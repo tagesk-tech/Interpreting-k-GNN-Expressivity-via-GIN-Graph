@@ -15,9 +15,10 @@ plots them for §5.B of the thesis:
   1. Cycle-count distribution (3-, 4-, 5-, 6-cycles per graph). Cycle
      structure is the canonical case where 2-WL distinguishes graphs that
      1-WL cannot, so it is the most theory-relevant aggregate.
-  2. Edge-type co-occurrence matrix. For each undirected edge in each
+  2. Edge-type co-occurrence shifts. For each undirected edge in each
      generated/real graph, count the unordered pair (type_i, type_j). The
-     matrix is normalised to a probability distribution per source.
+     distribution is normalised per source, then plotted as the largest
+     generator-minus-real shifts so the thesis figure stays readable.
   3. Degree-conditioned-on-node-type histograms. For each node type, the
      mean degree over the population. Reveals whether each generator places
      the right node types in the right structural slots (e.g., terminal vs
@@ -43,7 +44,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 import matplotlib
 
@@ -299,38 +300,69 @@ def plot_cycle_fingerprint(fps: Dict, dataset_name: str, out_path: Path):
     plt.close(fig)
 
 
+def unordered_edge_pair_shares(mat: np.ndarray, labels: List[str]) -> List[Tuple[str, float]]:
+    """Convert a symmetric ordered endpoint matrix into unordered edge shares."""
+    pairs = []
+    for i, left in enumerate(labels):
+        for j in range(i, len(labels)):
+            right = labels[j]
+            share = float(mat[i, i]) if i == j else float(mat[i, j] + mat[j, i])
+            pairs.append((f"{left}-{right}", share))
+    return pairs
+
+
+def largest_edge_pair_shifts(real: np.ndarray, gen: np.ndarray, labels: List[str],
+                             limit: int) -> List[Tuple[str, float, float, float]]:
+    """Return the largest absolute generator-minus-real unordered pair shifts."""
+    real_pairs = dict(unordered_edge_pair_shares(real, labels))
+    gen_pairs = dict(unordered_edge_pair_shares(gen, labels))
+    shifts = [
+        (pair, gen_pairs[pair] - real_pairs[pair], real_pairs[pair], gen_pairs[pair])
+        for pair in real_pairs
+    ]
+    return sorted(shifts, key=lambda row: abs(row[1]), reverse=True)[:limit]
+
+
 def plot_edge_pair_fingerprint(fps: Dict, dataset_name: str, type_labels: Dict[int, str],
                                out_dir: Path):
-    """One figure per generator: heatmap of edge-type pair distribution
-    side by side with the real distribution, and the absolute difference.
-    """
+    """One readable figure per generator: largest edge-pair distribution shifts."""
     num_types = len(type_labels)
     labels = [type_labels.get(i, f"t{i}") for i in range(num_types)]
+    pair_limit = min(8, num_types * (num_types + 1) // 2)
     for model in ("1gnn", "12gnn"):
-        fig, axes = plt.subplots(2, 3, figsize=(13, 9))
+        shifts_by_class = {}
         for c in (0, 1):
             real = np.array(fps[(c, "real")]["edge_pair_dist"])
             gen = np.array(fps[(c, model)]["edge_pair_dist"])
-            diff = gen - real
-            vmax = max(real.max(), gen.max(), 1e-6)
-            for ax, mat, title in zip(
-                axes[c],
-                (real, gen, diff),
-                (f"Real (class {c})", f"{model.upper()} gen (class {c})", "gen − real"),
-            ):
-                if title.startswith("gen"):
-                    cap = float(np.abs(mat).max() or 1e-6)
-                    im = ax.imshow(mat, cmap="RdBu_r", vmin=-cap, vmax=cap)
-                else:
-                    im = ax.imshow(mat, cmap="viridis", vmin=0, vmax=vmax)
-                ax.set_xticks(range(num_types))
-                ax.set_yticks(range(num_types))
-                ax.set_xticklabels(labels, fontsize=8, rotation=45, ha="right")
-                ax.set_yticklabels(labels, fontsize=8)
-                ax.set_title(title, fontsize=10)
-                fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            shifts_by_class[c] = largest_edge_pair_shifts(real, gen, labels, pair_limit)
+
+        max_abs = max(abs(delta) for shifts in shifts_by_class.values()
+                      for _, delta, _, _ in shifts)
+        xlim = max_abs * 100 * 1.18 if max_abs > 0 else 1.0
+
+        fig, axes = plt.subplots(2, 1, figsize=(10, 7.2), sharex=True)
+        for c, ax in enumerate(axes):
+            rows = sorted(shifts_by_class[c], key=lambda row: row[1])
+            pair_names = [row[0] for row in rows]
+            deltas = np.array([row[1] for row in rows]) * 100.0
+            colours = ["#2166ac" if value < 0 else "#b2182b" for value in deltas]
+            y = np.arange(len(rows))
+            ax.barh(y, deltas, color=colours, edgecolor="white")
+            ax.axvline(0, color="#333333", linewidth=0.8)
+            ax.set_yticks(y)
+            ax.set_yticklabels(pair_names, fontsize=9)
+            ax.set_xlim(-xlim, xlim)
+            ax.set_title(f"Class {c}: largest generated-minus-real shifts", fontsize=10)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+            for yi, value in zip(y, deltas):
+                ha = "left" if value >= 0 else "right"
+                offset = 0.012 * xlim if value >= 0 else -0.012 * xlim
+                ax.text(value + offset, yi, f"{value:+.1f}", va="center", ha=ha,
+                        fontsize=8)
+        axes[1].set_xlabel("Generated - real edge-pair share (percentage points)")
         fig.suptitle(
-            f"{dataset_name.upper()} edge-type co-occurrence fingerprint — {model.upper()}",
+            f"{dataset_name.upper()} edge-pair distribution shifts - {SOURCE_LABEL[model]}",
             fontsize=12,
         )
         fig.tight_layout()
