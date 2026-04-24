@@ -99,6 +99,8 @@ The standard failure mode is that 1-WL cannot tell apart two graphs in which eve
 
 The $k$-WL test fixes this by hashing over $k$-tuples of nodes rather than individual nodes, which makes non-local structural differences visible; 2-WL already distinguishes the triangles-vs-hexagon example. Morris et al.~\cite{morris2019weisfeiler} showed that 1-GNNs are at most as powerful as 1-WL in distinguishing power, and that $k$-GNNs operating on $k$-element node subsets (``$k$-sets'') are at most as powerful as $k$-WL (their Propositions 1--4). The Cai--F\"urer--Immerman construction~\cite{cai1992optimal} further shows $(k{+}1)$-WL is strictly more powerful than $k$-WL for all $k \geq 2$. This is the motivation for considering a 1-2-GNN: it augments node-level message passing with pair-level message passing and can therefore capture structural distinctions invisible to a standard 1-GNN. We rely on these results as background and do not reproduce them here.
 
+Positional encodings take a different route past 1-WL, by adding structural information to the initial node features rather than working on higher-order sets~\cite{grotschla2026benchmarking}; we return to them in Section~\ref{sec:discussion}.
+
 \subsection{GIN-Graph}
 
 GIN-Graph~\cite{sun2025gingraph} is a model-level explanation method that generates class-representative graphs using a generative adversarial approach. The key idea is to train a generator $\mathcal{G}$ to produce graphs that satisfy two objectives simultaneously:
@@ -911,6 +913,13 @@ Most generated explanations have granularity $\kappa \approx 0$, meaning they re
 
 Model-level explanations are inherently coarse-grained: they answer ``what does a typical class member look like?'' rather than ``which substructure drives the prediction?'' This is a property of the method, not a flaw---the two questions require different explanation approaches.
 
+\subsection{Computational overhead of higher-order message passing}
+\label{sec:overhead}
+
+The step from 1-GNN to 1-2-GNN is not free. A 1-GNN processes $n$ node embeddings per layer, so each message-passing round costs $O(n \cdot \deg)$ on sparse graphs. A 2-GNN operates on the pair set $\binom{V}{2}$ of size $n(n{-}1)/2$, so each pair-level round scales as $O(n^2 \cdot \deg)$: every node pair is a message-passing target, and the pair-neighbourhood is itself built from node-level adjacencies. On PROTEINS, where individual graphs reach 620 nodes, the pair set contains up to $191{,}890$ entries, and even with the numba-accelerated CSR kernel of Section~\ref{sec:2gnn} a single classifier forward pass costs $\approx 2.2$\,s---roughly $326\times$ the 1-GNN ($\approx 6.8$\,ms). On MUTAG the ratio is smaller but still $52\times$ ($99.5$\,ms vs.\ $1.9$\,ms). The dense wrapper of Section~\ref{sec:dense-2gnn} is worse still, because it materialises all $n^2$ candidate pair features into a single tensor; this is unavoidable for autograd to route the gradient $\partial z_{\text{logits}} / \partial \tilde{A}$ through the $\tilde{A}_{iw}$ soft-attention weights, but it couples memory to the square of the generated graph size and is the reason the PROTEINS generation size is capped at $N = 50$.
+
+Generation cost follows the same ratio: producing one MUTAG graph takes $\approx 0.02$\,s with the 1-GNN and $\approx 1.48$\,s with the 1-2-GNN ($74\times$), and on PROTEINS the gap is $36\times$. This is not an implementation issue---the $O(n^2)$ pair construction is intrinsic to the $k = 2$ step of the Weisfeiler--Leman hierarchy, and any extension to larger molecules, full protein graphs, or social networks has to either accept this cost, sample $k$-sets, or bypass the pair-level representation altogether.
+
 \subsection{Limitations}
 \label{sec:limitations}
 
@@ -934,6 +943,8 @@ A natural extension is a higher-order--aware generator. The output-space mismatc
 
 A second direction is extending the comparison to a 1-2-3-GNN, which adds 3-set message passing on top of node- and pair-level passes. This would test whether the kind of architecture-specific divergence observed here continues up the $k$-WL hierarchy, or whether it is a feature of the 1-to-2 step alone. The question is one of generality, not an expectation that a larger $k$ produces better explanations.
 
+A third direction, motivated by the overhead in Section~\ref{sec:overhead}, is to test whether a 1-GNN augmented with a \emph{positional encoding} (PE) can play the role of the 1-2-GNN in this pipeline at a fraction of the cost. PEs inject structural information directly into initial node features and allow a message-passing GNN to distinguish graphs that the plain 1-WL procedure cannot, without introducing pair-level message passing or the attendant $O(n^2)$ blow-up. Gr\"otschla et al.~\cite{grotschla2026benchmarking} benchmark nine PEs across eight architectures and ten datasets, and report that spectral encodings such as LapPE and ESLapPE offer a favourable trade-off between WL distinguishability and preprocessing cost, while random-walk encodings (RWSE, RRWP) reach higher synthetic distinguishability at a higher compute cost. A natural follow-up is therefore to train a 1-GNN with LapPE (or RWSE) features on MUTAG and PROTEINS, run GIN-Graph generation against it using the same dense wrapper as here, and compare the resulting explanations to the two architectures studied in this work. This would test whether a cheap 1-WL bypass produces explanations closer to the 1-2-GNN's (suggesting the divergence we observe is driven by expressiveness) or to the vanilla 1-GNN's (suggesting it is driven by the pair-level inductive bias specifically). The comparison would also carry the caveat that Gr\"otschla et al.~\cite{grotschla2026benchmarking} report explicitly: higher WL distinguishability does not reliably translate into better downstream performance, so a 1-GNN+PE that matches the 1-2-GNN on accuracy need not match it on the kind of class concept it internalises.
+
 % ============================================================
 % 7. Conclusion
 % ============================================================
@@ -954,7 +965,7 @@ Our fully differentiable dense wrapper enables GIN-Graph explanation generation 
 % References
 % ============================================================
 \bibliographystyle{plain}
-\begin{thebibliography}{7}
+\begin{thebibliography}{8}
 
 \bibitem[Borgwardt et~al.(2005)]{borgwardt2005protein}
 K.~M. Borgwardt, C.~S. Ong, S.~Sch\"{o}nauer, S.~V.~N. Vishwanathan, A.~J. Smola, and H.-P. Kriegel.
@@ -970,6 +981,11 @@ J.-Y. Cai, M.~F\"{u}rer, and N.~Immerman.
 A.~K. Debnath, R.~L. {Lopez de Compadre}, G.~Debnath, A.~J. Shusterman, and C.~Hansch.
 \newblock Structure-activity relationship of mutagenic aromatic and heteroaromatic nitro compounds.
 \newblock \emph{J.\ Med.\ Chem.}, 34(2):786--797, 1991.
+
+\bibitem[Gr\"otschla et~al.(2026)]{grotschla2026benchmarking}
+F.~Gr\"otschla, J.~Xie, and R.~Wattenhofer.
+\newblock Benchmarking positional encodings for {GNN}s and graph transformers.
+\newblock In \emph{KDD}, 2026.
 
 \bibitem[Gulrajani et~al.(2017)]{gulrajani2017improved}
 I.~Gulrajani, F.~Ahmed, M.~Arjovsky, V.~Dumoulin, and A.~Courville.
