@@ -654,7 +654,7 @@ PROTEINS & 1 (Non-Enzyme)     & 1-2-GNN & 0.524 & 0.151 & 0.998 & 0.961 \\
 
 For each (dataset, class) cell, we describe what the real class-$c$ graphs look like, then what the 1-GNN-generated and 1-2-GNN-generated class-$c$ graphs look like under the same structural summaries. The statistics come from \textbf{1000 generated graphs per configuration}; no retraining is performed. Sample sizes below 500 are too noisy to separate the per-class structural fingerprints from per-draw randomness, so we standardise on 1000.
 
-We make a deliberate methodological choice in this section: \emph{we do not characterise the generators by inspecting their top-ranked individual graphs.} The generator maps a random latent vector to one example at a time, and ranking those by validation score selects for the random draws that happen to land highest -- a small, biased window onto what the generator has actually internalised. Instead, every claim in this section is supported by an aggregate over the full 1000-sample population: composition tables, edge-type co-occurrence shifts, exact simple-cycle counts. The thresholded adjacency is symmetric and zero on the diagonal in every case; isolated nodes are dropped before any per-graph statistic is computed.
+We make a deliberate methodological choice in this section: \emph{we do not characterise the generators by inspecting their top-ranked individual graphs.} The generator maps a random latent vector to one example at a time, and ranking those by validation score selects for the random draws that happen to land highest -- a small, biased window onto what the generator has actually internalised. Instead, every claim in this section is supported by an aggregate over the full 1000-sample population: composition tables and shift plots, edge-type co-occurrence shifts, exact simple-cycle counts. The thresholded adjacency is symmetric and zero on the diagonal in every case; isolated nodes are dropped before any per-graph statistic is computed.
 
 \subsubsection{MUTAG}
 \label{sec:mutag_results}
@@ -682,6 +682,15 @@ Class & Source & $\bar{n}$ & $\bar{d}$ & \%C & \%N & \%O & \%halogen (F+Cl+Br+I)
 \bottomrule
 \end{tabular}
 \end{table}
+
+\paragraph{Atom-type distribution shift.} Figure~\ref{fig:mutag-node-type-shifts} shows the same composition result as generated-minus-real percentage-point shifts. This makes the overcompensation pattern visible: on class~0 the 1-2-GNN strongly increases halogen atoms, especially F and Br, while almost removing N; on class~1 the 1-GNN introduces halogens that are nearly absent in the real class, whereas the 1-2-GNN keeps halogens near zero and instead increases C.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{results/mutag/comparison/figures/fingerprint_node_type_shifts.png}
+\caption{MUTAG atom-type distribution shifts. Bars show generated-minus-real changes in active-node atom shares, in percentage points, over 1000 generated graphs per class. Positive bars are over-produced by the generator; negative bars are under-produced.}
+\label{fig:mutag-node-type-shifts}
+\end{figure}
 
 \paragraph{Cycle-count fingerprint.} Real MUTAG molecules contain essentially no triangles or 4-cycles -- the only short cycles are aromatic 6-rings -- so the per-class cycle distribution is a sharp population-level fingerprint of what each generator has learned. Table~\ref{tab:mutag-cycles} reports the mean number of simple cycles of each length per graph, computed exactly by depth-first enumeration over the 1000 generated graphs per cell. Figure~\ref{fig:mutag-cycles} shows the same data with standard-error bars.
 
@@ -751,6 +760,15 @@ Class & Source & $\bar{n}$ & $\bar{d}$ & \%Helix & \%Sheet & \%Coil/Turn \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+\paragraph{Secondary-structure distribution shift.} Figure~\ref{fig:proteins-node-type-shifts} plots generated-minus-real node-type shifts for PROTEINS. Class~0 is close to the real distribution for the 1-2-GNN and only mildly shifted for the 1-GNN. Class~1 is the main failure mode: both generators over-produce Sheet nodes and under-produce Helix and Coil/Turn, with the 1-2-GNN showing the strongest Sheet-heavy collapse.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{results/proteins/comparison/figures/fingerprint_node_type_shifts.png}
+\caption{PROTEINS secondary-structure distribution shifts. Bars show generated-minus-real changes in active-node type shares, in percentage points, over 1000 generated graphs per class. Here H denotes Helix, S denotes Sheet, and C denotes Coil/Turn.}
+\label{fig:proteins-node-type-shifts}
+\end{figure}
 
 \paragraph{Cycle-count fingerprint.} Unlike MUTAG, real PROTEINS graphs contain triangles and 4-cycles in non-trivial numbers (mean per graph 24.8/34.6 for class 0, 15.6/21.6 for class 1), so the question for PROTEINS is not whether short cycles exist but at what relative rates. Table~\ref{tab:proteins-cycles} and Figure~\ref{fig:proteins-cycles} report the per-class cycle distribution.
 
