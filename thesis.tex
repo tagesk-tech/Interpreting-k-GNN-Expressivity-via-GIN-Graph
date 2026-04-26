@@ -882,6 +882,18 @@ The results therefore support a cautious conclusion. Higher-order message passin
 
 The descriptive findings in Section~\ref{sec:qualitative} support a reading of the two architectures as internalising different class concepts. We emphasise that this is a statement about \emph{what the classifiers encode}, not about which encoding is more correct: the pipeline provides no ground truth against which to judge. The cross-model classification results (12.3\% on MUTAG Mutagen, 14.0\% on PROTEINS Enzyme) and the cycle-count fingerprints on MUTAG (a roughly $5\!\times$ gap in the 3-cycle rate on class~1, with the 1-2-GNN suppressing what its 2-set message passing can resolve) are the strongest quantitative evidence for this reading. They show that each classifier has class-defining features not visible to the other, and that the architectural asymmetry is consistent with what 1-WL and 2-WL can respectively distinguish.
 
+\subsection{What the qualitative figures add}
+
+The figures in Section~\ref{sec:qualitative} add a more concrete explanation of where the two models differ. The cross-model classification figures show that most generated graphs are accepted by the model that produced them, but not always by the other model. This is important because it means the generated graphs are not just generic class samples. They are model-specific prototypes.
+
+The node-type and edge-pair figures show which parts of the graphs drive these prototypes. On MUTAG, the 1-2-GNN is strongly halogen-heavy for Non-Mutagen, but not for Mutagen. For Mutagen, it instead removes the rare halogens that appear more often in the 1-GNN generations. The edge-pair plots show that this is not only a node-count effect: the generated bonds also move toward different atom-pair patterns.
+
+On PROTEINS, the clearest visual pattern is the Sheet-heavy shift in class~1. Both generators over-produce Sheet nodes, but the 1-2-GNN does it more strongly, and the edge-pair figure shows the same effect as an over-production of S-S edges. For class~0, the 1-2-GNN stays closer to the real node-type distribution and is accepted by both classifiers, while the 1-GNN Enzyme graphs are mostly rejected by the 1-2-GNN.
+
+The cycle figures add the topological part of the analysis. On MUTAG, the 1-2-GNN produces fewer triangles than the 1-GNN, which fits the expected advantage of pair-level message passing, but it also creates too many 4-cycles. On PROTEINS, the generated graphs over-produce longer cycles even when mean degree is close to the real data. This suggests that the issue is not just the number of edges, but how the edges are arranged.
+
+Taken together, the figures support the main interpretation of the thesis: higher-order message passing changes the learned class prototype, but it does not automatically make the explanation more realistic in every class.
+
 \subsection{Local structure vs.\ population fidelity}
 
 The three-way comparison in Section~\ref{sec:qualitative} separates \emph{local structural realism} from \emph{population-level fidelity}: degree distributions are matched closely in every configuration, but graph-size and node-type distributions often are not. A generated graph's local connectivity can look plausible even when the overall population is systematically shifted. This distinction is the main reason we avoid reading any single summary number as a verdict on either architecture; fidelity is class- and configuration-specific, and neither architecture dominates across cells.
