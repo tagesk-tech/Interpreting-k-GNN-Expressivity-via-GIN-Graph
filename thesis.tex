@@ -860,7 +860,7 @@ Class & Source & 3-cycles & 4-cycles & 5-cycles & 6-cycles \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/proteins/comparison/figures/fingerprint_cycles.png}
-\caption{PROTEINS simple-cycle counts per graph, aggregated over 1000 generated graphs per cell. Error bars are the standard error of the mean. Both generators over-produce longer cycles relative to real; the cells where the two generators differ most are class-0 3-cycles and class-1 4-cycles.}
+\caption{PROTEINS simple-cycle counts per graph, aggregated over 1000 generated graphs per cell. Error bars are the standard error of the mean. Both generators over-produce longer cycles relative to real; the strongest differences appear in the 6-cycle panels, with the 1-2-GNN highest in class~0 and the 1-GNN highest in class~1.}
 \label{fig:proteins-cycles}
 \end{figure}
 
@@ -939,7 +939,7 @@ Our central finding is that the two architectures learn \emph{qualitatively diff
 
 Cross-model classification of 1000 generated graphs per class confirms this divergence quantitatively. On MUTAG, the 1-2-GNN's Mutagen graphs are rejected by the 1-GNN (12.3\% agreement). On PROTEINS, 1-GNN-generated Enzyme graphs are rejected by the 1-2-GNN (14.0\% agreement), while the 1-2-GNN's Enzyme graphs are accepted by both models (97.6\%/100\%). The exact simple-cycle distribution adds a second, theory-aligned signal on MUTAG: real molecules contain no triangles or 4-cycles, both generators introduce them, but the 1-2-GNN's 3-cycle rate is consistently lower than the 1-GNN's (0.50 vs.\ 0.82 on class~0, 0.15 vs.\ 1.01 on class~1) -- consistent with 2-set message passing being able to distinguish triangles that 1-WL cannot.
 
-At the same time, the population-level fingerprints show that the generators preserve local degree structure and per-edge-type bond composition better than they preserve graph-size or per-class node-type distributions, and the cross-classification asymmetries are restricted to a single class per dataset rather than appearing uniformly. The most defensible conclusion is therefore nuanced: higher-order message passing changes what kinds of class prototypes are learned, and in selected cases improves fidelity, but it does not produce a blanket advantage on every class or every dataset.
+At the same time, the population-level fingerprints show that the generators preserve mean degree much better than they preserve graph size, node-type distributions, edge-pair distributions, or cycle structure. The cross-classification asymmetries are also restricted to a single class per dataset rather than appearing uniformly. The most defensible conclusion is therefore nuanced: higher-order message passing changes what kinds of class prototypes are learned, and in selected cases improves fidelity, but it does not produce a blanket advantage on every class or every dataset.
 
 Our fully differentiable dense wrapper enables GIN-Graph explanation generation for hierarchical $k$-GNN architectures while maintaining gradient flow through both node features and adjacency matrices. Additionally, our corrected validation metric---computing actual cosine similarity between generated and real graph embeddings rather than using prediction probability as a proxy---provides a more faithful measure of explanation quality. These technical contributions open the door to studying interpretability across the $k$-WL expressiveness hierarchy.
 
