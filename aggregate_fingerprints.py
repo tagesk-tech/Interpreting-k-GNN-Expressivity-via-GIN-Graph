@@ -19,7 +19,9 @@ plots them for §5.B of the thesis:
      generated/real graph, count the unordered pair (type_i, type_j). The
      distribution is normalised per source, then plotted as the largest
      generator-minus-real shifts so the thesis figure stays readable.
-  3. Degree-conditioned-on-node-type histograms. For each node type, the
+  3. Node-type population shifts. For each generated population, plot the
+     percentage-point change from the matching real class distribution.
+  4. Degree-conditioned-on-node-type histograms. For each node type, the
      mean degree over the population. Reveals whether each generator places
      the right node types in the right structural slots (e.g., terminal vs
      interior atoms).
@@ -36,6 +38,7 @@ Reads:
 Writes:
     results/{dataset}/comparison/figures/fingerprint_cycles.png
     results/{dataset}/comparison/figures/fingerprint_edge_pairs_{model}.png
+    results/{dataset}/comparison/figures/fingerprint_node_type_shifts.png
     results/{dataset}/comparison/figures/fingerprint_degree_by_type.png
     results/{dataset}/comparison/fingerprints.json
 """
@@ -371,6 +374,60 @@ def plot_edge_pair_fingerprint(fps: Dict, dataset_name: str, type_labels: Dict[i
         plt.close(fig)
 
 
+def plot_node_type_shift_fingerprint(fps: Dict, dataset_name: str, type_labels: Dict[int, str],
+                                     out_path: Path):
+    """Show generated-minus-real node-type population shifts for both generators."""
+    num_types = len(type_labels)
+    labels = [type_labels.get(i, f"t{i}") for i in range(num_types)]
+    models = ("1gnn", "12gnn")
+
+    all_deltas = []
+    for c in (0, 1):
+        real = np.array(fps[(c, "real")]["type_population_share"])
+        for model in models:
+            gen = np.array(fps[(c, model)]["type_population_share"])
+            all_deltas.extend(((gen - real) * 100.0).tolist())
+    ylim = max(abs(value) for value in all_deltas) * 1.22 if all_deltas else 1.0
+
+    fig, axes = plt.subplots(2, 1, figsize=(max(8, 1.15 * num_types), 6.8),
+                             sharex=True, sharey=True)
+    x = np.arange(num_types)
+    width = 0.36
+    for c, ax in enumerate(axes):
+        real = np.array(fps[(c, "real")]["type_population_share"])
+        for offset, model in zip((-width / 2, width / 2), models):
+            gen = np.array(fps[(c, model)]["type_population_share"])
+            deltas = (gen - real) * 100.0
+            bars = ax.bar(
+                x + offset, deltas, width=width, color=SOURCE_COLOUR[model],
+                edgecolor="white", label=SOURCE_LABEL[model] if c == 0 else None,
+            )
+            for bar, value in zip(bars, deltas):
+                if abs(value) < 1.0:
+                    continue
+                va = "bottom" if value > 0 else "top"
+                pad = 0.012 * ylim if value > 0 else -0.012 * ylim
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2, value + pad, f"{value:+.1f}",
+                    ha="center", va=va, fontsize=7, rotation=90,
+                )
+        ax.axhline(0, color="#333333", linewidth=0.8)
+        ax.set_ylim(-ylim, ylim)
+        ax.set_ylabel(f"Class {c}\npercentage points", fontsize=10)
+        ax.set_title(f"Class {c}: generated - real node-type share", fontsize=10)
+        ax.grid(axis="y", alpha=0.22)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+    axes[0].legend(loc="upper right", frameon=False, fontsize=9)
+    axes[1].set_xticks(x)
+    axes[1].set_xticklabels(labels, fontsize=9)
+    axes[1].set_xlabel("Node type")
+    fig.suptitle(f"{dataset_name.upper()} node-type distribution shifts", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
 def plot_degree_by_type(fps: Dict, dataset_name: str, type_labels: Dict[int, str],
                         out_path: Path):
     """One row per class, grouped bars per type, three sources per group."""
@@ -463,6 +520,9 @@ def main():
 
     plot_cycle_fingerprint(fps, args.dataset, fig_dir / "fingerprint_cycles.png")
     plot_edge_pair_fingerprint(fps, args.dataset, type_labels, fig_dir)
+    plot_node_type_shift_fingerprint(
+        fps, args.dataset, type_labels, fig_dir / "fingerprint_node_type_shifts.png"
+    )
     plot_degree_by_type(fps, args.dataset, type_labels, fig_dir / "fingerprint_degree_by_type.png")
     print(f"  wrote figures to {fig_dir}")
 
