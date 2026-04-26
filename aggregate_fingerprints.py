@@ -12,9 +12,10 @@ systematic differences and tolerate per-draw noise.
 This script builds three fingerprints per (dataset, class, source) cell and
 plots them for §5.B of the thesis:
 
-  1. Cycle-count distribution (3-, 4-, 5-, 6-cycles per graph). Cycle
-     structure is the canonical case where 2-WL distinguishes graphs that
-     1-WL cannot, so it is the most theory-relevant aggregate.
+  1. Cycle-count distribution (3-, 4-, 5-, 6-cycles per graph), with a
+     normalized companion plot per active node and per edge. Cycle structure
+     is the canonical case where 2-WL distinguishes graphs that 1-WL cannot,
+     so it is the most theory-relevant aggregate.
   2. Edge-type co-occurrence shifts. For each undirected edge in each
      generated/real graph, count the unordered pair (type_i, type_j). The
      distribution is normalised per source, then plotted as the largest
@@ -37,6 +38,7 @@ Reads:
 
 Writes:
     results/{dataset}/comparison/figures/fingerprint_cycles.png
+    results/{dataset}/comparison/figures/fingerprint_cycles_normalized.png
     results/{dataset}/comparison/figures/fingerprint_edge_pairs_{model}.png
     results/{dataset}/comparison/figures/fingerprint_node_type_shifts.png
     results/{dataset}/comparison/figures/fingerprint_degree_by_type.png
@@ -225,10 +227,34 @@ def population_fingerprint(adjs: np.ndarray, xs: np.ndarray, num_types: int) -> 
 
     # Per-graph cycle counts
     cyc = {k: np.zeros(n, dtype=np.int64) for k in CYCLE_LENGTHS}
+    node_counts = np.zeros(n, dtype=np.float64)
+    edge_counts = np.zeros(n, dtype=np.float64)
     for i in range(n):
+        mask = active_mask(a_bin[i])
+        node_counts[i] = float(mask.sum())
+        edge_counts[i] = float(a_bin[i].sum() // 2)
         c = cycle_counts(a_bin[i])
         for k in CYCLE_LENGTHS:
             cyc[k][i] = c[k]
+
+    cyc_per_node = {
+        k: np.divide(
+            cyc[k],
+            node_counts,
+            out=np.zeros_like(cyc[k], dtype=np.float64),
+            where=node_counts > 0,
+        )
+        for k in CYCLE_LENGTHS
+    }
+    cyc_per_edge = {
+        k: np.divide(
+            cyc[k],
+            edge_counts,
+            out=np.zeros_like(cyc[k], dtype=np.float64),
+            where=edge_counts > 0,
+        )
+        for k in CYCLE_LENGTHS
+    }
 
     # Edge-pair matrix summed over the population
     pair_total = np.zeros((num_types, num_types), dtype=np.int64)
@@ -248,7 +274,13 @@ def population_fingerprint(adjs: np.ndarray, xs: np.ndarray, num_types: int) -> 
 
     return {
         "cycle_counts": {k: cyc[k].tolist() for k in CYCLE_LENGTHS},
+        "cycle_per_node": {k: cyc_per_node[k].tolist() for k in CYCLE_LENGTHS},
+        "cycle_per_edge": {k: cyc_per_edge[k].tolist() for k in CYCLE_LENGTHS},
         "cycle_means": {k: float(cyc[k].mean()) for k in CYCLE_LENGTHS},
+        "cycle_per_node_means": {k: float(cyc_per_node[k].mean()) for k in CYCLE_LENGTHS},
+        "cycle_per_edge_means": {k: float(cyc_per_edge[k].mean()) for k in CYCLE_LENGTHS},
+        "node_count_mean": float(node_counts.mean()),
+        "edge_count_mean": float(edge_counts.mean()),
         "edge_pair_dist": pair_norm.tolist(),
         "edge_pair_count_total": int(pair_total.sum()),
         "mean_degree_by_type": mean_deg_per_type.tolist(),
@@ -298,6 +330,54 @@ def plot_cycle_fingerprint(fps: Dict, dataset_name: str, out_path: Path):
             ax.spines["right"].set_visible(False)
     fig.suptitle(f"{dataset_name.upper()} cycle-count fingerprint "
                  "(mean per graph, error bars = SEM)", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+
+
+def plot_normalized_cycle_fingerprint(fps: Dict, dataset_name: str, out_path: Path):
+    """Cycle means normalized by graph size and edge count."""
+    panels = (
+        ("node_count_mean", "cycles per mean active node"),
+        ("edge_count_mean", "cycles per mean edge"),
+    )
+    fig, axes = plt.subplots(2, 2, figsize=(11, 7), sharex=False)
+    x = np.arange(len(CYCLE_LENGTHS))
+    width = 0.24
+
+    for c in (0, 1):
+        for j, (denom_key, title) in enumerate(panels):
+            ax = axes[c, j]
+            for offset, src in zip((-width, 0, width), SOURCE_ORDER):
+                denom = fps[(c, src)][denom_key]
+                means = [
+                    fps[(c, src)]["cycle_means"][length] / denom if denom > 0 else 0.0
+                    for length in CYCLE_LENGTHS
+                ]
+                ax.bar(
+                    x + offset,
+                    means,
+                    width=width,
+                    color=SOURCE_COLOUR[src],
+                    edgecolor="white",
+                    label=SOURCE_LABEL[src] if c == 0 and j == 0 else None,
+                )
+            ax.set_title(f"Class {c}: {title}", fontsize=10)
+            ax.set_xticks(x)
+            ax.set_xticklabels([str(k) for k in CYCLE_LENGTHS])
+            ax.set_xlabel("Cycle length")
+            if j == 0:
+                ax.set_ylabel("mean normalized count", fontsize=10)
+            ax.grid(axis="y", alpha=0.22)
+            ax.spines["top"].set_visible(False)
+            ax.spines["right"].set_visible(False)
+
+    axes[0, 0].legend(loc="upper left", frameon=False, fontsize=9)
+    fig.suptitle(
+        f"{dataset_name.upper()} normalized cycle-count fingerprint "
+        "(raw cycle means divided by mean graph size or mean edge count)",
+        fontsize=12,
+    )
     fig.tight_layout()
     fig.savefig(out_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -492,6 +572,10 @@ def serialisable_summary(fps: Dict) -> Dict:
     for (c, src), d in fps.items():
         out[f"class{c}_{src}"] = {
             "cycle_means": d["cycle_means"],
+            "cycle_per_node_means": d["cycle_per_node_means"],
+            "cycle_per_edge_means": d["cycle_per_edge_means"],
+            "node_count_mean": d["node_count_mean"],
+            "edge_count_mean": d["edge_count_mean"],
             "edge_pair_dist": d["edge_pair_dist"],
             "edge_pair_count_total": d["edge_pair_count_total"],
             "mean_degree_by_type": d["mean_degree_by_type"],
@@ -519,6 +603,9 @@ def main():
     fps = build_fingerprints(args.dataset, num_types)
 
     plot_cycle_fingerprint(fps, args.dataset, fig_dir / "fingerprint_cycles.png")
+    plot_normalized_cycle_fingerprint(
+        fps, args.dataset, fig_dir / "fingerprint_cycles_normalized.png"
+    )
     plot_edge_pair_fingerprint(fps, args.dataset, type_labels, fig_dir)
     plot_node_type_shift_fingerprint(
         fps, args.dataset, type_labels, fig_dir / "fingerprint_node_type_shifts.png"
