@@ -28,7 +28,6 @@ Outputs (in results/{dataset}/comparison/figures/):
   - real_vs_random_{model}_class{N}.png
 """
 import argparse
-import json
 from pathlib import Path
 
 import numpy as np
@@ -65,14 +64,10 @@ def real_graphs_for_class(dataset_name: str, class_idx: int, n: int = 5, max_nod
     return picks
 
 
-def class_label_from_report(dataset_name: str, class_idx: int) -> str:
-    """Read class_label from any existing report.json (consistent across reports)."""
-    for model in ("1gnn", "12gnn"):
-        path = Path(f"results/{dataset_name}/{model}_class{class_idx}/report.json")
-        if path.exists():
-            with open(path) as f:
-                return json.load(f)["class_label"]
-    return f"Class {class_idx}"
+def class_label(dataset_name: str, class_idx: int) -> str:
+    """Return the canonical class label from the dataset handler."""
+    handler = get_handler(dataset_name)
+    return handler.class_names.get(class_idx, f"Class {class_idx}")
 
 
 def load_random_generated(dataset_name: str, model: str, class_idx: int, k: int = 5,
@@ -101,7 +96,7 @@ def plot_real_samples(dataset_name: str, out_dir: Path):
     fig, axes = plt.subplots(2, n_per, figsize=(3 * n_per, 6))
     for c in (0, 1):
         samples = real_graphs_for_class(dataset_name, c, n_per, max_nodes=max_n)
-        class_name = class_label_from_report(dataset_name, c)
+        class_name = class_label(dataset_name, c)
         titles = [f"n={n}" for (_, _, n) in samples]
         for ax, (adj, x, _), title in zip(axes[c], samples, titles):
             handler.plot_explanation_graph(adj, x, ax=ax, title=title)
@@ -127,7 +122,7 @@ def plot_random_overview(dataset_name: str, model: str, out_dir: Path):
         titles = [f"n={n}" for n in n_nodes]
         for i, (a, x, title) in enumerate(zip(adjs, xs, titles)):
             handler.plot_explanation_graph(a, x, ax=axes[c, i], title=title)
-        class_name = class_label_from_report(dataset_name, c)
+        class_name = class_label(dataset_name, c)
         axes[c, 0].set_ylabel(f"Class {c}\n({class_name})", fontsize=11)
     fig.suptitle(
         f"{dataset_name.upper()} — {model.upper()} 5 random generated graphs per class "
@@ -152,7 +147,7 @@ def plot_real_vs_random(dataset_name: str, model: str, class_idx: int, out_dir: 
 
     adjs, xs, n_nodes = load_random_generated(dataset_name, model, class_idx, k=5, rng=rng)
     real = real_graphs_for_class(dataset_name, class_idx, 5, max_nodes=max_n)
-    class_name = class_label_from_report(dataset_name, class_idx)
+    class_name = class_label(dataset_name, class_idx)
 
     fig, axes = plt.subplots(2, 5, figsize=(15, 6))
     gen_titles = [f"n={n}" for n in n_nodes]
