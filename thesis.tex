@@ -731,6 +731,7 @@ Class & Source & $\bar{n}$ & $\bar{d}$ & \%C & \%N & \%O & \%halogen (F+Cl+Br+I)
 \end{tabular}
 \end{table}
 
+\paragraph{Atom-type distribution shift.}
 Figure~\ref{fig:mutag-node-type-shifts} shows the same atom-composition result as generated-minus-real percentage-point shifts. For class 0, the 1-2-GNN generator changes the atom distribution strongly. It produces many more halogen atoms, especially fluorine and bromine, and almost removes nitrogen. The 1-GNN also increases halogens compared with the real data, but the effect is much smaller. This suggests that the 1-2-GNN has learned a more extreme Non-Mutagen prototype for this class.
 
 \begin{figure}[htbp]
@@ -742,6 +743,7 @@ Figure~\ref{fig:mutag-node-type-shifts} shows the same atom-composition result a
 
 For class 1, the pattern is different. The real Mutagen class contains mostly carbon, oxygen, and nitrogen, with almost no halogens. The 1-GNN generator introduces rare halogens, especially iodine and fluorine, even though these are nearly absent in the real class. The 1-2-GNN generator does the opposite. It keeps halogens close to zero, increases carbon, and reduces nitrogen. This means the 1-2-GNN is not simply more halogen-heavy on MUTAG in general. The effect is class-specific.
 
+\paragraph{Edge-pair distribution shift.}
 The edge-pair shift plot supports the same reading. For MUTAG class 0, the 1-2-GNN creates many more C-F and C-Br edges than the real data. This means the atom shift also appears in the bond structure. For class 1, the largest positive shifts are C-O and O-O edges, while C-N and N-O edges are reduced. The Mutagen prototype is therefore not just low-halogen; it also changes which common atom pairs are connected.
 
 \begin{figure}[htbp]
@@ -751,6 +753,7 @@ The edge-pair shift plot supports the same reading. For MUTAG class 0, the 1-2-G
 \label{fig:mutag-edge-pairs}
 \end{figure}
 
+\paragraph{Cycle-count fingerprint.}
 The cycle-count plot gives a structural comparison that is especially relevant for the difference between 1-WL and 2-WL. Real MUTAG molecules in these classes contain no 3-cycles or 4-cycles. Both generators introduce such cycles, so neither generated population is a faithful sample of the real molecular distribution. However, the 1-2-GNN introduces fewer triangles than the 1-GNN in both classes. This is most clear in class 1, where the 1-GNN has about one triangle per graph on average, while the 1-2-GNN has far fewer. This fits the theory, since pair-level message passing can distinguish triangle-like structure more directly than a standard 1-GNN.
 
 \begin{table}[htbp]
@@ -782,7 +785,7 @@ Class & Source & 3-cycles & 4-cycles & 5-cycles & 6-cycles \\
 \label{fig:mutag-cycles}
 \end{figure}
 
-At the same time, the 1-2-GNN overproduces 4-cycles, especially in class 1. This means the 1-2-GNN is not simply more realistic. It seems to avoid one unrealistic structure, triangles, while creating another kind of closure. A careful interpretation is that the 1-2-GNN learns a different structural prototype, not a universally better one. The strongest MUTAG result is still the cross-model result for class 1: 1-2-GNN generated Mutagen graphs are accepted by the 1-2-GNN, but mostly rejected by the 1-GNN.
+At the same time, the 1-2-GNN overproduces 4-cycles, especially in class 1. This is not a contradiction of the triangle result: the theory-aligned signal here is about triangle-like structure, not a guarantee that every short cycle will be penalised in the same direction. A careful interpretation is that the 1-2-GNN learns a different structural prototype, not a universally better one. The strongest MUTAG result is still the cross-model result for class 1: 1-2-GNN generated Mutagen graphs are accepted by the 1-2-GNN, but mostly rejected by the 1-GNN.
 
 \subsubsection{PROTEINS}
 \label{sec:proteins_results}
@@ -811,6 +814,7 @@ Class & Source & $\bar{n}$ & $\bar{d}$ & \%Helix & \%Sheet & \%Coil/Turn \\
 \end{tabular}
 \end{table}
 
+\paragraph{Secondary-structure distribution shift.}
 For PROTEINS class 0, the node-type distribution is fairly close to the real data, especially for the 1-2-GNN. The real class has a mix of Helix and Sheet nodes, with a small amount of Coil/Turn. The 1-2-GNN generated graphs keep this balance quite well. The 1-GNN is also close, although it removes Coil/Turn almost completely. Both generators keep mean degree close to the real class.
 
 \begin{figure}[htbp]
@@ -820,10 +824,11 @@ For PROTEINS class 0, the node-type distribution is fairly close to the real dat
 \label{fig:proteins-node-type-shifts}
 \end{figure}
 
-The cross-classification result for PROTEINS class 0 is stronger than the composition table alone. The 1-GNN generated Enzyme graphs are accepted by the 1-GNN, but mostly rejected by the 1-2-GNN. The reverse is not true in the same way: 1-2-GNN generated Enzyme graphs are accepted by both models. This suggests that the 1-2-GNN decision boundary for Enzyme is more selective in this experiment.
+This should be read together with the cross-classification result: 1-GNN Enzyme graphs are mostly rejected by the 1-2-GNN, while 1-2-GNN Enzyme graphs are accepted by both models.
 
 For PROTEINS class 1, the main pattern is a strong shift toward Sheet nodes. Both generators overproduce Sheet and underproduce Helix and Coil/Turn, but the 1-2-GNN does this more strongly. The 1-GNN generated graphs are already Sheet-heavy, but the 1-2-GNN generated graphs are more extreme. This is a clear example of overcompensation: the generator seems to have learned that Sheet structure is useful for the class, then produces too much of it compared with the real data.
 
+\paragraph{Edge-pair distribution shift.}
 The edge-pair plot adds another layer. In PROTEINS class 0, the 1-2-GNN keeps the node-type distribution close to real data, but still shifts edges toward mixed H-S pairs and away from S-S pairs. In class 1, the change is much larger: the 1-2-GNN strongly overproduces S-S edges and underproduces H-H and H-S edges. This matters because the generated graphs are not only changing the number of Sheet nodes. They are also changing how those nodes are connected.
 
 \begin{figure}[htbp]
@@ -833,11 +838,12 @@ The edge-pair plot adds another layer. In PROTEINS class 0, the 1-2-GNN keeps th
 \label{fig:proteins-edge-pairs}
 \end{figure}
 
-The cycle plots show another kind of structural drift. In PROTEINS, both generators overproduce longer cycles compared with the real data, especially 5-cycles and 6-cycles. This should not be explained simply as the generator producing more edges. The mean degree of the generated graphs is close to the real mean degree in most PROTEINS settings. A better explanation is that the generators arrange a similar amount of local connectivity into more cyclic structures. The direction also depends on the class: in class 0, the 1-2-GNN has the largest 6-cycle excess, while in class 1 the 1-GNN is more cycle-heavy than the 1-2-GNN. This separates node composition from topology. A graph population can be more Sheet-heavy without also having the highest cycle counts.
+\paragraph{Cycle-count fingerprint.}
+The cycle plots show another kind of structural drift. In PROTEINS, both generators overproduce 5- and 6-cycles compared with the real data. This should not be explained simply as the generator producing more edges. The mean degree of the generated graphs is close to the real mean degree in most PROTEINS settings. A better explanation is that the generators arrange a similar amount of local connectivity into more cyclic structures. The direction also depends on the class: in class 0, the 1-2-GNN has the largest 6-cycle excess, while in class 1 the 1-GNN is more cycle-heavy than the 1-2-GNN. This separates node composition from topology. A graph population can be more Sheet-heavy without also having the highest cycle counts.
 
 \begin{table}[htbp]
 \centering
-\caption{PROTEINS cycle counts (mean simple cycles per graph, exact). Both generators under-produce 3-cycles relative to real and over-produce longer cycles, but the relative orderings differ by class.}
+\caption{PROTEINS cycle counts (mean simple cycles per graph, exact). Both generators under-produce 3-cycles relative to real and over-produce 5- and 6-cycles, but the relative orderings differ by class.}
 \label{tab:proteins-cycles}
 \small
 \begin{tabular}{llcccc}
@@ -860,17 +866,13 @@ Class & Source & 3-cycles & 4-cycles & 5-cycles & 6-cycles \\
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/proteins/comparison/figures/fingerprint_cycles.png}
-\caption{PROTEINS simple-cycle counts per graph, aggregated over 1000 generated graphs per cell. Error bars are the standard error of the mean. Both generators over-produce longer cycles relative to real; the strongest differences appear in the 6-cycle panels, with the 1-2-GNN highest in class~0 and the 1-GNN highest in class~1.}
+\caption{PROTEINS simple-cycle counts per graph, aggregated over 1000 generated graphs per cell. Error bars are the standard error of the mean. Both generators over-produce 5- and 6-cycles relative to real; the strongest differences appear in the 6-cycle panels, with the 1-2-GNN highest in class~0 and the 1-GNN highest in class~1.}
 \label{fig:proteins-cycles}
 \end{figure}
 
 \subsection{Summary of the comparison}
 
-Across both datasets, the generated graphs should be interpreted as classifier-specific prototypes rather than faithful random samples from the real data. The generators usually produce graphs that their own classifier accepts with high confidence, but the generated populations often differ from the real data in systematic ways. These differences appear in graph size, node-type composition, edge-pair composition, and cycle structure.
-
-The main finding is that the 1-GNN and 1-2-GNN do not learn the same class prototypes. On MUTAG, the clearest difference appears for class 1, where 1-2-GNN generated Mutagen graphs are mostly rejected by the 1-GNN. On PROTEINS, the clearest difference appears for class 0, where 1-GNN generated Enzyme graphs are mostly rejected by the 1-2-GNN. These cross-model failures show that the generated graphs are not just noisy versions of the same underlying class idea. Each architecture can learn class features that the other architecture does not treat as sufficient.
-
-The results therefore support a cautious conclusion. Higher-order message passing changes what the model treats as a convincing class example, but it does not make the generated explanations uniformly more realistic. In some cases, the 1-2-GNN looks closer to the real distribution. In other cases, it overcompensates more strongly. The value of the qualitative analysis is that it makes these differences visible.
+Across both datasets, the generated graphs should be interpreted as classifier-specific prototypes rather than faithful random samples from the real data. The clearest differences are class-specific: 1-2-GNN Mutagen graphs on MUTAG are mostly rejected by the 1-GNN, while 1-GNN Enzyme graphs on PROTEINS are mostly rejected by the 1-2-GNN. The population fingerprints show why these failures are plausible: the two architectures shift graph size, node-type composition, edge-pair composition, and cycle structure in different directions. Higher-order message passing changes what the model treats as a convincing class example, but it does not make the generated explanations uniformly more realistic.
 
 % ============================================================
 % 6. Discussion
