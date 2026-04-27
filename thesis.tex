@@ -660,7 +660,7 @@ PROTEINS & 1 (Non-Enzyme)     & 1-2-GNN & 0.524 & 0.151 & 0.998 & 0.961 \\
 
 This part compares three graph populations: the real dataset graphs, the graphs generated for the 1-GNN, and the graphs generated for the 1-2-GNN. The aim is not to decide that one model is better. The aim is to see what kind of graph each classifier treats as a typical example of each class.
 
-The analysis is based mainly on population-level statistics. Individual graph drawings are useful for visual intuition, but they can be misleading if they are treated as evidence by themselves. The generator produces one graph from one random latent vector, so a few examples only show a small part of the generated distribution. The claims below are therefore based on 1000 generated graphs per dataset, class, and model. The thresholded adjacency is symmetric and zero on the diagonal in every case, and isolated nodes are dropped before per-graph statistics are computed.
+The analysis is based mainly on population-level statistics. Individual graph drawings are useful for visual intuition, but they can be misleading if they are treated as evidence by themselves. The generator produces one graph from one random latent vector, so a few examples only show a small part of the generated distribution. Figures~\ref{fig:mutag-examples} and~\ref{fig:proteins-examples} are therefore included only to make the populations easier to picture. The claims below are based on 1000 generated graphs per dataset, class, and model. The thresholded adjacency is symmetric and zero on the diagonal in every case, and isolated nodes are dropped before per-graph statistics are computed.
 
 \subsubsection{Prediction and cross-model agreement}
 \label{sec:comparison}
@@ -714,6 +714,13 @@ Two cells stand out. On MUTAG class 1, the 1-2-GNN generated Mutagen graphs are 
 \label{sec:mutag_results}
 
 MUTAG is a molecule dataset, so the most direct comparison is based on atom types, graph size, edge types, and cycle structure. Table~\ref{tab:mutag-compare} summarises the real and generated populations. In both classes, the generated graphs keep the mean degree close to the real data. The larger differences appear in graph size and atom composition.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{results/mutag/comparison/figures/example_graphs.png}
+\caption{Illustrative MUTAG examples. Each row shows three graphs from one source: real dataset graphs, top-ranked saved 1-GNN explanations, or top-ranked saved 1-2-GNN explanations. These examples are for visual orientation only; the quantitative claims use the full 1000-graph generated populations.}
+\label{fig:mutag-examples}
+\end{figure}
 
 \begin{table}[htbp]
 \centering
@@ -797,6 +804,13 @@ At the same time, the 1-2-GNN overproduces 4-cycles, especially in class 1. This
 \label{sec:proteins_results}
 
 PROTEINS has a different type of graph structure. The nodes are secondary-structure types, here written as H for Helix, S for Sheet, and C for Coil/Turn. The edges represent structural or sequential relationships between these elements. Table~\ref{tab:proteins-compare} gives the population summary.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{results/proteins/comparison/figures/example_graphs.png}
+\caption{Illustrative PROTEINS examples. Each row shows three graphs from one source: real dataset graphs, top-ranked saved 1-GNN explanations, or top-ranked saved 1-2-GNN explanations. The generated examples make the population-level shifts easier to see, but they are not used as standalone evidence.}
+\label{fig:proteins-examples}
+\end{figure}
 
 \begin{table}[htbp]
 \centering
