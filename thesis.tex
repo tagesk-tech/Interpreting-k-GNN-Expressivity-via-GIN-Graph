@@ -541,7 +541,7 @@ PROTEINS & 1 (Non-Enzyme)     & 1-2-GNN & 0.524 & 0.151 & 0.998 & 0.961 \\
 
 This part compares three graph populations: the real dataset graphs, the graphs generated for the 1-GNN, and the graphs generated for the 1-2-GNN. The aim is not to decide that one model is better. The aim is to see what kind of graph each classifier treats as a typical example of each class.
 
-The analysis is based mainly on population-level statistics. Individual graph drawings are useful for visual intuition, but they can be misleading if they are treated as evidence by themselves. The generator produces one graph from one random latent vector, so a few examples only show a small part of the generated distribution. Figures~\ref{fig:mutag-examples} and~\ref{fig:proteins-examples} are therefore included only to make the populations easier to picture. The claims below are based on 1000 generated graphs per dataset, class, and model. The thresholded adjacency is symmetric and zero on the diagonal in every case, and isolated nodes are dropped before per-graph statistics are computed.
+The analysis is based mainly on population-level statistics. Individual graph drawings are useful for visual intuition, but they can be misleading if they are treated as evidence by themselves. The generator produces one graph from one random latent vector, so a few examples only show a small part of the generated distribution. Figures~\ref{fig:mutag-examples} and~\ref{fig:proteins-examples} are therefore included only to make the populations easier to picture. The claims below are based on 1000 generated graphs per dataset, class, and model. The thresholded adjacency is symmetric and zero on the diagonal in every case, and isolated nodes are dropped before per-graph statistics are computed. The remaining active graph is not forced to be connected, so the cycle fingerprints should be read as population-level structural fingerprints rather than as claims about one connected molecule or protein-like component per sample.
 
 \subsubsection{Prediction and cross-model agreement}
 \label{sec:comparison}
@@ -740,7 +740,9 @@ The edge-pair plot adds another layer. In PROTEINS class 0, the 1-2-GNN keeps th
 \end{figure}
 
 \paragraph{Cycle-count fingerprint.}
-The cycle plots show another kind of structural drift. In PROTEINS, both generators overproduce 5- and 6-cycles compared with the real data. This should not be explained simply as the generator producing more edges. The mean degree of the generated graphs is close to the real mean degree in most PROTEINS settings. A better explanation is that the generators arrange a similar amount of local connectivity into more cyclic structures. The direction also depends on the class: in class 0, the 1-2-GNN has the largest 6-cycle excess, while in class 1 the 1-GNN is more cycle-heavy than the 1-2-GNN. This separates node composition from topology. A graph population can be more Sheet-heavy without also having the highest cycle counts.
+The cycle plots show another kind of structural drift. In PROTEINS, both generators overproduce 5- and 6-cycles compared with the real data. This should not be explained simply as the generator producing more edges: the mean degree of the generated graphs is close to the real mean degree in most PROTEINS settings, and the normalized cycle view in Figure~\ref{fig:proteins-cycles-normalized} shows the same broad pattern after dividing by graph size or edge count. A better explanation is that the generators arrange a similar amount of local connectivity into more cyclic structures.
+
+The direction depends on the class. In class 0, the 1-2-GNN has the largest 6-cycle excess, including after normalization. This is a useful argument for architecture-specific structure: the pair-level model is not just matching the Helix/Sheet proportions, but forming larger cyclic closures in a way the 1-GNN does not. In class 1, the ordering reverses: the 1-GNN is more cycle-heavy than the 1-2-GNN, even though the 1-2-GNN is more Sheet-heavy. This separates node composition from topology. A graph population can overproduce Sheet nodes without also having the highest cycle counts.
 
 \begin{table}[htbp]
 \centering
@@ -771,6 +773,13 @@ Class & Source & 3-cycles & 4-cycles & 5-cycles & 6-cycles \\
 \label{fig:proteins-cycles}
 \end{figure}
 
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=\textwidth]{results/proteins/comparison/figures/fingerprint_cycles_normalized.png}
+\caption{Normalized PROTEINS cycle-count fingerprint. The left panels divide each raw cycle mean by the mean active-node count; the right panels divide by the mean edge count. The normalization checks that the longer-cycle trend is not only a by-product of larger generated graphs.}
+\label{fig:proteins-cycles-normalized}
+\end{figure}
+
 \subsection{Summary of the comparison}
 
 Across both datasets, the generated graphs should be interpreted as classifier-specific prototypes rather than faithful random samples from the real data. The clearest differences are class-specific: 1-2-GNN Mutagen graphs on MUTAG are mostly rejected by the 1-GNN, while 1-GNN Enzyme graphs on PROTEINS are mostly rejected by the 1-2-GNN. The population fingerprints show why these failures are plausible: the two architectures shift graph size, node-type composition, edge-pair composition, and cycle structure in different directions. Higher-order message passing changes what the model treats as a convincing class example, but it does not make the generated explanations uniformly more realistic.
@@ -787,7 +796,7 @@ The qualitative analysis supports the view that the two architectures internalis
 
 The clearest evidence is the cross-model classification result. Most generated graphs are accepted by the model that produced them, but two cells fail strongly across models: 1-2-GNN Mutagen graphs on MUTAG are mostly rejected by the 1-GNN (12.3\% agreement), and 1-GNN Enzyme graphs on PROTEINS are mostly rejected by the 1-2-GNN (14.0\% agreement). This means the two classifiers sometimes treat different structures as sufficient evidence for the same class.
 
-The aggregate fingerprints explain the direction of these failures without turning them into quality claims. On MUTAG, the class-specific atom, edge-pair, and cycle shifts show that the 1-2-GNN does not simply learn a more realistic molecule distribution; it suppresses triangles while over-producing other closures. On PROTEINS, the same pattern appears through secondary-structure and edge-pair shifts, especially the Sheet-heavy Non-Enzyme prototype. These are architecture-specific prototypes, not samples from a ground-truth class distribution.
+The aggregate fingerprints explain the direction of these failures without turning them into quality claims. On MUTAG, the class-specific atom, edge-pair, and cycle shifts show that the 1-2-GNN does not simply learn a more realistic molecule distribution; it suppresses triangles while over-producing other closures. On PROTEINS, the same pattern appears through secondary-structure and edge-pair shifts, especially the Sheet-heavy Non-Enzyme prototype. The cycle fingerprints add a separate topology signal: class~0 favours larger closures for the 1-2-GNN, while class~1 is more cycle-heavy for the 1-GNN. These are architecture-specific prototypes, not samples from a ground-truth class distribution.
 
 For this reason, cross-classification rates and aggregate fingerprints are the main evidence. They are computed directly on the generated populations. Taken together, they support the thesis's main interpretation: higher-order message passing changes the learned class prototype, but it does not automatically make the explanation more realistic in every class.
 
@@ -812,6 +821,8 @@ Several limitations qualify the findings:
 
 \textbf{Granularity.} Most generated graphs stay close to full-graph prototypes ($\kappa \approx 0$) rather than small substructures: the generator produces graphs of a fixed maximum size $N$, and the Gumbel-Softmax sampling tends to activate most nodes (e.g.\ 23--27 of 28 on MUTAG). This is a property of model-level explanations: they answer ``what does a typical class member look like?'' rather than ``which substructure drives the prediction?''
 
+\textbf{Connectivity and graph-size cap.} Real MUTAG graphs are connected and real PROTEINS graphs are almost always connected, but the generated graphs are not constrained to remain connected after thresholding. Isolated nodes are removed before computing statistics, yet the remaining active graph can still split into several components. This matters most for cycle counts: separate dense components can increase the number of short and medium cycles without corresponding to one connected real graph. The PROTEINS cycle fingerprint also compares generated graphs capped at $N=50$ against the real graphs that fit this cap, while the size table describes the broader real class distribution. The cycle results are therefore best read as evidence of structural drift in the generated populations, not as a perfect real-vs-generated motif audit.
+
 \subsection{Future Work}
 
 A natural extension is a higher-order--aware generator that produces pair-level (or more generally $k$-set--level) features directly, removing the output-space mismatch identified in Section~\ref{sec:limitations} and giving a cleaner test of what a 1-2-GNN classifier encodes.
@@ -819,6 +830,8 @@ A natural extension is a higher-order--aware generator that produces pair-level 
 A second direction is extending the comparison to a 1-2-3-GNN, to test whether the architecture-specific divergence observed here continues up the $k$-WL hierarchy or is a feature of the 1-to-2 step alone.
 
 A third direction, motivated by the overhead in Section~\ref{sec:overhead}, is to test whether a 1-GNN with a \emph{positional encoding} (PE) can play the role of the 1-2-GNN at a fraction of the cost. PEs inject structural information into initial node features without pair-level message passing or the $O(n^2)$ blow-up; Gr\"otschla et al.~\cite{grotschla2026benchmarking} report that spectral encodings such as LapPE offer a favourable trade-off between WL distinguishability and preprocessing cost. Running the GIN-Graph pipeline on a 1-GNN+LapPE classifier would test whether the divergence we observe is driven by raw expressiveness or by the pair-level inductive bias specifically.
+
+A fourth direction is to add explicit connectedness control and component-aware evaluation. The current generator is regularised by graph size, node-type distribution, and average degree, but not by connectedness. A future version should either penalise disconnected samples during generation or report all motif fingerprints on the largest connected component alongside the full active graph. This would make cycle-count comparisons cleaner, especially for PROTEINS where larger closures are part of the qualitative argument.
 
 % ============================================================
 % 7. Conclusion
