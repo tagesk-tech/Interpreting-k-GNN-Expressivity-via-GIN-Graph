@@ -2,9 +2,9 @@
 """Create real-vs-generated example graph panels for the thesis.
 
 The script is intentionally lightweight: it parses TU raw dataset files
-directly and reads the saved top explanation arrays from results/. It avoids
-PyTorch/PyG so the illustrative figures can be regenerated without the full
-training environment.
+directly and reads the 1000-graph generated comparison populations from
+results/. It avoids PyTorch/PyG so the illustrative figures can be regenerated
+without the full training environment.
 
 Outputs:
   results/{dataset}/comparison/figures/example_graphs.png
@@ -140,21 +140,38 @@ def active_generated_graph(adj: np.ndarray, x: np.ndarray) -> dict:
     return {"labels": labels, "edges": edges}
 
 
-def load_top_generated(dataset: str, model: str, class_idx: int, count: int) -> list[dict]:
-    path = Path("results") / dataset / f"{model}_class{class_idx}" / "explanations.npz"
+def choose_median_size_examples(graphs: list[dict], count: int, max_nodes: int | None = None) -> list[dict]:
+    candidates = graphs
+    if max_nodes is not None:
+        capped = [g for g in graphs if len(g["labels"]) <= max_nodes]
+        if len(capped) >= count:
+            candidates = capped
+    if len(candidates) < count:
+        raise ValueError(f"Need at least {count} examples, got {len(candidates)}")
+
+    sizes = np.array([len(g["labels"]) for g in candidates], dtype=np.float64)
+    median_size = float(np.median(sizes))
+    ranked = sorted(
+        enumerate(candidates),
+        key=lambda item: (abs(len(item[1]["labels"]) - median_size), item[0]),
+    )
+    chosen = sorted(idx for idx, _ in ranked[:count])
+    return [candidates[idx] for idx in chosen]
+
+
+def load_generated_examples(dataset: str, model: str, class_idx: int, count: int) -> list[dict]:
+    path = Path("results") / dataset / "comparison" / f"{model}_generated.npz"
     if not path.exists():
-        raise FileNotFoundError(f"Missing saved explanation file: {path}")
+        raise FileNotFoundError(f"Missing saved generated population file: {path}")
     data = np.load(path)
-    adjs = data["adjs"][:count]
-    xs = data["xs"][:count]
-    return [active_generated_graph(adj, x) for adj, x in zip(adjs, xs)]
+    adjs = data[f"adjs_class{class_idx}"]
+    xs = data[f"xs_class{class_idx}"]
+    graphs = [active_generated_graph(adj, x) for adj, x in zip(adjs, xs)]
+    return choose_median_size_examples(graphs, count)
 
 
 def choose_real_examples(real_by_class: dict[int, list[dict]], class_idx: int, count: int, max_nodes: int) -> list[dict]:
-    candidates = [g for g in real_by_class[class_idx] if len(g["labels"]) <= max_nodes]
-    if len(candidates) < count:
-        candidates = real_by_class[class_idx]
-    return candidates[:count]
+    return choose_median_size_examples(real_by_class[class_idx], count, max_nodes=max_nodes)
 
 
 def force_layout(node_count: int, edges: list[tuple[int, int]], seed: int) -> np.ndarray:
@@ -235,8 +252,8 @@ def plot_dataset(dataset: str, data_root: Path, count: int) -> Path:
 
     rows = [
         ("Real", lambda class_idx: choose_real_examples(real_by_class, class_idx, count, spec.max_nodes)),
-        ("1-GNN gen.", lambda class_idx: load_top_generated(dataset, "1gnn", class_idx, count)),
-        ("1-2-GNN gen.", lambda class_idx: load_top_generated(dataset, "12gnn", class_idx, count)),
+        ("1-GNN gen.", lambda class_idx: load_generated_examples(dataset, "1gnn", class_idx, count)),
+        ("1-2-GNN gen.", lambda class_idx: load_generated_examples(dataset, "12gnn", class_idx, count)),
     ]
 
     ncols = count * 2
@@ -253,7 +270,7 @@ def plot_dataset(dataset: str, data_root: Path, count: int) -> Path:
                 draw_graph(axes[row_idx, offset + col_idx], graph, spec, title, seed=101 + 41 * row_idx + 11 * class_idx + col_idx)
         axes[row_idx, 0].text(-0.12, 0.5, row_label, transform=axes[row_idx, 0].transAxes, ha="right", va="center", fontsize=8)
 
-    fig.suptitle(f"{spec.name}: real examples and top generated explanations", fontsize=12)
+    fig.suptitle(f"{spec.name}: real and generated population examples", fontsize=12)
     fig.text(0.34, 0.91, f"Class 0: {spec.class_names[0]}", ha="center", va="bottom", fontsize=10, fontweight="bold")
     fig.text(0.72, 0.91, f"Class 1: {spec.class_names[1]}", ha="center", va="bottom", fontsize=10, fontweight="bold")
     fig.tight_layout(rect=(0.10, 0.0, 1.0, 0.90))

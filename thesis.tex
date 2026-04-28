@@ -243,74 +243,16 @@ The total generator loss combines adversarial, GNN-guidance, and structural regu
 \end{equation}
 where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training, and $\mathcal{L}_{\text{reg}}$ comprises structural regularisation losses described below. The three terms correspond to three goals: making the generated graphs look realistic ($\mathcal{L}_{\text{GAN}}$), making them belong to the target class ($\mathcal{L}_{\text{GNN}}$), and making them the right size and composition ($\mathcal{L}_{\text{reg}}$). We now explain each in turn, beginning with the adversarial component and the discriminator that drives it.
 
-\subsubsection{$\mathcal{L}_{\text{GAN}}$: The Discriminator}
+\subsubsection{$\mathcal{L}_{\text{GAN}}$: Adversarial Loss}
 
-The discriminator $\mathcal{D}$ is a graph neural network that maps a graph to a single scalar. It operates on dense batched inputs (node features $\mathbf{X} \in \mathbb{R}^{B \times N \times D}$ and adjacency $\mathbf{A} \in [0,1]^{B \times N \times N}$) so that the same forward pass handles both real and generated graphs. The architecture has three stages:
+The adversarial component drives generated graphs toward the real-graph distribution. A discriminator $\mathcal{D}$, a small graph neural network trained from scratch alongside the generator, maps each graph to an unbounded scalar realism score: higher means more real. The discriminator is distinct from the frozen pretrained classifier $\Phi$ used in $\mathcal{L}_{\text{GNN}}$, since $\Phi$ scores class membership rather than realism. Generator and discriminator update in alternating steps with $n_{\text{critic}} = 1$ so that neither is trained to convergence; this co-evolution keeps $\mathcal{D}$'s scores informative across the region of input space where the generator's current outputs lie. We use the WGAN-GP formulation~\cite{gulrajani2017improved}.
 
-\begin{enumerate}[nosep]
-  \item \textbf{Two dense GCN layers} with hidden dimension 128 and ReLU activations. Each layer computes $\mathbf{H}^{(t)} = \sigma(\hat{\mathbf{A}}\,\mathbf{H}^{(t-1)}\,\mathbf{W}^{(t)})$, where $\hat{\mathbf{A}}$ is the adjacency with self-loops added and symmetric degree normalisation applied.
-  \item \textbf{Mean pooling} across the node dimension: $\mathbf{h}_G = \frac{1}{N} \sum_{v=1}^{N} \mathbf{h}_v^{(2)} \in \mathbb{R}^{128}$. This produces a single graph-level vector per graph.
-  \item \textbf{Two-layer MLP} with LeakyReLU activation (negative slope $\alpha = 0.2$, as in Section~\ref{sec:generator}): $\mathcal{D}(G) = \mathbf{w}^\top \text{LeakyReLU}_{0.2}(\mathbf{W}\,\mathbf{h}_G) \in \mathbb{R}$. In the discriminator the LeakyReLU choice is standard for GAN training, where ReLU's zero-gradient half-plane can cause dead units that stop contributing signal to the generator during adversarial updates.
-\end{enumerate}
-
-Higher values of $\mathcal{D}(G)$ indicate that the graph appears real; lower values indicate that it appears generated. There is no sigmoid or softmax at the output, so $\mathcal{D}(G)$ is not a probability. In a standard binary classifier, the scalar would pass through a sigmoid $\sigma(x) = 1/(1+e^{-x})$ to produce a value in $[0, 1]$. Here the output is left unbounded. The reason is explained below in the comparison with vanilla GANs.
-
-The discriminator is distinct from the pretrained $k$-GNN classifier $\Phi$ used in $\mathcal{L}_{\text{GNN}}$: $\mathcal{D}$ is trained from scratch during GIN-Graph training and scores graphs on realism, while $\Phi$ is frozen and scores graphs on class membership.
-
-\subsubsection{$\mathcal{L}_{\text{GAN}}$: The Two-Player Setup}
-
-The generator $\mathcal{G}$ and the discriminator $\mathcal{D}$ are trained in alternating steps:
-
-\begin{itemize}[nosep]
-  \item The \textbf{discriminator} receives a batch of real graphs from the training set and a batch of generated graphs from the current generator, and updates its weights to increase scores on real graphs and decrease scores on generated graphs.
-  \item The \textbf{generator} produces a batch of graphs, passes them through the discriminator, and updates its weights to increase the scores the discriminator assigns.
-\end{itemize}
-
-Neither network is trained to convergence; they co-evolve. In each training step, the discriminator updates once, then the generator updates once ($n_{\text{critic}} = 1$). This alternation is necessary. If $\mathcal{D}$ were trained to convergence against a fixed generator, its output would be correct (low on all generated graphs, high on all real graphs) but uninformative as a gradient signal: the generated region of input space would become flat, so small changes to a generated graph would not change $\mathcal{D}$'s score, and the generator would receive no direction for improvement. Keeping $\mathcal{D}$ partially trained ensures that its scores still vary across the region where the generator's current outputs lie.
-
-\subsubsection{$\mathcal{L}_D$: Discriminator Loss}
-
-With the setup in place, we can state the discriminator loss. In each training step, we draw a batch of $B = 64$ real graphs $G$ from the training set and a batch of $B$ fake graphs $\tilde{G}$ from the generator. The discriminator minimises:
-\begin{equation}
-  \mathcal{L}_D = \underbrace{\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})]}_{\text{score on fake}} - \underbrace{\mathbb{E}_{G \sim p_{\text{data}}}[\mathcal{D}(G)]}_{\text{score on real}} + \underbrace{\lambda_{\text{GP}} \, \mathbb{E}_{\hat{G}}\!\left[(\|\nabla_{\hat{G}} \mathcal{D}(\hat{G})\|_2 - 1)^2\right]}_{\text{gradient penalty}},
-  \label{eq:wgan-d}
-\end{equation}
-where each expectation $\mathbb{E}[\cdot]$ is in practice the average over one batch. Consider the first two terms:
-
-\begin{itemize}[nosep]
-  \item $\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})]$ is the average score the discriminator assigns to generated graphs. The discriminator minimises $\mathcal{L}_D$, so it pushes this term down, assigning \emph{low} scores to generated graphs.
-  \item $-\mathbb{E}_{G \sim p_{\text{data}}}[\mathcal{D}(G)]$ is the negative of the average score on real graphs. Minimising this term pushes the average score on real graphs \emph{up}.
-\end{itemize}
-
-Together, these two terms encode one instruction: push real scores up, push generated scores down. The third term, the gradient penalty, is a stability device explained below.
-
-\subsubsection{$\mathcal{L}_{\text{GAN}}$: Generator Loss}
-
-The generator's adversarial loss is the negation of the discriminator's ``score on fake'' term:
+The generator interacts with the discriminator only through its own adversarial loss, the negation of the average score $\mathcal{D}$ assigns to generated graphs:
 \begin{equation}
   \mathcal{L}_{\text{GAN}} = -\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})].
   \label{eq:wgan-g}
 \end{equation}
-
-The generator wants to maximise the score the discriminator assigns to its outputs. Since optimisers minimise by convention, we negate: minimising $-\mathbb{E}[\mathcal{D}(\tilde{G})]$ is equivalent to maximising $\mathbb{E}[\mathcal{D}(\tilde{G})]$.
-
-Real graphs do not appear in $\mathcal{L}_{\text{GAN}}$. The generator never sees real data directly. It learns about the real distribution only through the gradient signal from $\mathcal{D}$: real graphs train $\mathcal{D}$, and $\mathcal{D}$'s gradient informs the generator how to adjust its outputs. This indirect chain, from real data to $\mathcal{D}$'s parameters to $\mathcal{D}$'s gradient to the generator's parameters, is the core mechanism of GANs.
-
-\subsubsection{$\mathcal{L}_{\text{GAN}}$: Why WGAN-GP and Not a Vanilla GAN}
-
-In a vanilla GAN, the discriminator ends in a sigmoid, so its output is a value in $[0, 1]$ interpreted as the probability of the input being real. The problem is gradient saturation. Once $\mathcal{D}$ can reliably separate real from generated graphs, the sigmoid output for generated graphs is pushed toward 0. The derivative of the sigmoid $\sigma(x) = 1/(1+e^{-x})$ is $\sigma(x)(1 - \sigma(x))$, which approaches zero when $\sigma(x) \approx 0$ or $\sigma(x) \approx 1$. The generator's weight updates are computed via the chain rule as a product of derivatives, one of which is this sigmoid derivative. A near-zero factor makes the entire product near-zero, and the generator stops learning. This is the core difficulty of vanilla GAN training.
-
-WGAN removes the sigmoid. The discriminator's output is an unbounded real number with no flat region. When $\mathcal{D}$ becomes strong, its output for generated graphs continues decreasing, and the derivative remains non-degenerate, so the generator continues to receive a gradient signal.
-
-Removing the sigmoid introduces a new problem: without any bound on $\mathcal{D}$'s output, it can reduce its loss without limit by scaling its weights up. Doubling all weights roughly doubles the output gap between real and generated scores. The gradient penalty in Equation~\eqref{eq:wgan-d} prevents this. The term
-\[
-  \lambda_{\text{GP}} \, \mathbb{E}_{\hat{G}}\!\left[(\|\nabla_{\hat{G}} \mathcal{D}(\hat{G})\|_2 - 1)^2\right]
-\]
-penalises deviation of the gradient magnitude of $\mathcal{D}$'s output (with respect to its input $\hat{G}$) from 1. Here $\hat{G} = \epsilon G + (1-\epsilon)\tilde{G}$ with $\epsilon \sim \text{Uniform}(0,1)$ is a random interpolation between a real and a generated graph, so the penalty is evaluated at points between the two distributions. The coefficient $\lambda_{\text{GP}} = 10$.
-
-This constraint has two effects. First, $\mathcal{D}$ cannot reduce its loss by weight rescaling. Consider a linear discriminator $D_\psi(G) = \psi^\top \mathrm{vec}(G)$ as a tractable case. Then $\nabla_G D_\psi = \psi$, so $\|\nabla_G D_\psi\|_2 = \|\psi\|_2$. Rescaling the weights $\psi \mapsto k\psi$ rescales the gradient norm to $k\|\psi\|_2$, and the gradient-penalty term becomes $(k\|\psi\|_2 - 1)^2$, which grows quadratically in $k$ and dominates $\mathcal{L}_D$ for large $k$. For the deep LeakyReLU discriminator used here, the activations are positively homogeneous ($\text{LeakyReLU}_\alpha(c\,x) = c\,\text{LeakyReLU}_\alpha(x)$ for $c \geq 0$), so scaling every weighted layer by $k$ scales the output by $k^L$ with $L$ the number of weighted layers, and the gradient norm scales the same way. The penalty therefore forbids rescaling as a route to lower $\mathcal{L}_D$: any rescaling inflates the penalty much faster than it can inflate the adversarial gap between real and generated scores. Second, the gradient flowing from $\mathcal{D}$ into the generator remains at a bounded magnitude, neither vanishing (the vanilla GAN failure) nor exploding (the unconstrained WGAN failure).
-
-In summary: a vanilla GAN's sigmoid saturates when $\mathcal{D}$ is confident, killing the generator's gradient. WGAN-GP removes the sigmoid and adds a gradient penalty that keeps the gradient magnitude near 1. The generator therefore receives a non-degenerate learning signal regardless of $\mathcal{D}$'s strength.
+Minimising $\mathcal{L}_{\text{GAN}}$ is equivalent to maximising the score $\mathcal{D}$ assigns to generated graphs. Real graphs do not appear in $\mathcal{L}_{\text{GAN}}$ directly; the generator learns about the real distribution only through $\mathcal{D}$'s gradient. The discriminator architecture, its training loss with the gradient penalty, the two-player training dynamics, and the derivation of why WGAN-GP avoids the failure modes of vanilla GANs are in Appendix~\ref{app:discriminator}.
 
 \subsubsection{$\mathcal{L}_{\text{GNN}}$: GNN Guidance Loss}
 
@@ -334,75 +276,14 @@ When $t \ll pT$ (the first $\sim$120 epochs), the sigmoid argument is strongly n
 
 \subsubsection{$\mathcal{L}_{\text{reg}}$: Structural Regularisation}
 
-The generator outputs a fixed-size $N \times N$ adjacency matrix and $N \times D$ feature matrix ($N = 28$ for MUTAG, $N = 50$ for PROTEINS). Without explicit constraints, the Gumbel-Softmax sampling activates most slots and settles on atom-type distributions that satisfy the classifier but do not resemble real class members. $\mathcal{L}_{\text{GAN}}$ constrains these statistics only indirectly through the discriminator, and the signal is too weak to prevent these failures. The regularisation term $\mathcal{L}_{\text{reg}}$ supplies direct supervision on two graph-level statistics: graph size and atom-type frequencies. Both targets are precomputed once from the real training set and remain fixed during training.
-
-The regulariser decomposes as $\mathcal{L}_{\text{reg}} = \mathcal{L}_{\text{size}} + \mathcal{L}_{\text{type}}$, combined into the full expression:
+The generator outputs fixed-size $N \times N$ adjacency and $N \times D$ feature matrices ($N = 28$ for MUTAG, $N = 50$ for PROTEINS). Without explicit constraints, Gumbel-Softmax sampling activates most slots and settles on atom-type distributions that satisfy the classifier but do not resemble real class members. $\mathcal{L}_{\text{GAN}}$ constrains these statistics only indirectly through the discriminator and is too weak a signal to prevent these failures. $\mathcal{L}_{\text{reg}}$ therefore supplies direct supervision on two graph-level statistics, graph size and atom-type frequencies, both precomputed once from the real training set:
 \begin{equation}
   \mathcal{L}_{\text{reg}} = \lambda_{\text{size}} \cdot \left(\frac{\hat{n} - \bar{n}_c}{\bar{n}_c}\right)^2 + \lambda_{\text{type}} \cdot \sum_{i=1}^{D} \left(\hat{p}_i - p_i^c\right)^2,
   \label{eq:reg}
 \end{equation}
-where $\mathcal{L}_{\text{size}}$ penalises deviation from the class mean graph size and $\mathcal{L}_{\text{type}}$ penalises deviation from the class atom-type distribution. We now derive each term.
+with $\lambda_{\text{size}} = 10$ and $\lambda_{\text{type}} = 1$. The first term penalises deviation from the class mean graph size $\bar{n}_c$, where $\hat{n}$ is a soft, differentiable count of active slots in the generated adjacency, defined so that gradients flow from the size penalty back to the generator. The second term penalises deviation from the class atom-type distribution $p^c$, where $\hat{p}_i$ is the share of slots that the generator's near-one-hot feature output assigns to atom type $i$. Both targets, $\bar{n}_c$ and $p^c$, are computed once from the real class-$c$ training graphs.
 
-\paragraph{Size penalty.}
-The generator outputs a fixed $N \times N$ matrix with no flag marking which slots are active. A slot is effectively active if it has at least one edge to another slot, so the natural notion of graph size is the number of slots with at least one edge.
-
-Define the soft degree of slot $v$ as the row-sum of the soft adjacency matrix:
-\[
-  d_v = \sum_{u=1}^{N} \tilde{A}_{vu}.
-\]
-A slot with no edges has $d_v \approx 0$; a slot with one edge has $d_v \approx 1$; a slot with three edges has $d_v \approx 3$. The naive active-slot count would use an indicator:
-\[
-  \hat{n}_{\text{naive}} = \sum_{v=1}^{N} \mathbb{1}[d_v > 0.5],
-\]
-treating a slot as active if it has at least half an edge of connection. This does not work for training: the indicator is a step function with derivative zero almost everywhere and undefined at the step. Any gradient flowing from $\mathcal{L}_{\text{size}}$ through this path collapses to zero.
-
-We therefore replace the step with a smooth approximation. The logistic sigmoid $\sigma(x) = 1/(1 + e^{-x})$ approximates a step at $x = 0$. To place the transition at $d_v = 0.5$ and sharpen it, we shift the argument by $0.5$ and scale by $10$:
-\[
-  \hat{n} = \sum_{v=1}^{N} \sigma\bigl(10 \cdot (d_v - 0.5)\bigr).
-\]
-The multiplier 10 is steep enough that slots with $d_v < 0.3$ contribute near zero and slots with $d_v > 0.7$ contribute near one:
-
-\begin{center}
-\begin{tabular}{lccccc}
-\toprule
-$d_v$ & 0 & 0.3 & 0.5 & 0.7 & 1.0 \\
-$\sigma(10(d_v - 0.5))$ & 0.007 & 0.12 & 0.50 & 0.88 & 0.99 \\
-\bottomrule
-\end{tabular}
-\end{center}
-
-The expression approximates the active-slot count on the forward pass while providing non-zero gradients everywhere on the backward pass.
-
-With $\hat{n}$ (soft count of active slots) and $\bar{n}_c$ (mean node count of real class-$c$ graphs, precomputed once), the size penalty is
-\[
-  \mathcal{L}_{\text{size}} = \lambda_{\text{size}} \left(\frac{\hat{n} - \bar{n}_c}{\bar{n}_c}\right)^2.
-\]
-Two design choices matter. The squared error is smooth at zero with derivative vanishing as the error approaches zero, so the generator settles into the target without oscillation; the absolute value has a non-differentiable corner at zero and a constant-magnitude gradient. The division by $\bar{n}_c$ converts the error into a relative error, making the penalty scale-invariant across datasets: a 5-node error on MUTAG class 0 ($\bar{n}_c \approx 13.9$) is a $\sim$36\% failure, while the same error on a dataset with $\bar{n}_c \approx 40$ is only $\sim$12.5\%. Without this normalisation, $\lambda_{\text{size}}$ would need to be retuned for every new dataset.
-
-The coefficient $\lambda_{\text{size}} = 10$ is ten times larger than $\lambda_{\text{type}}$ because a size violation breaks the graph structurally (a 50-node molecule where the class mean is 14 is unrecognisable), while atom-type violations are a softer failure.
-
-\paragraph{Atom-type penalty.}
-For each class $c$, the target distribution $p^c = (p_1^c, \ldots, p_D^c)$ is the frequency of each atom type in real class-$c$ graphs, where $p_i^c$ is the fraction of atoms of type $i$. This is a probability vector: entries in $[0, 1]$ summing to 1. For MUTAG class 0, $p^c \approx (0.85, 0.08, 0.04, \ldots)$ across the $D = 7$ atom types, with carbon dominating. Computed once, stored, reused.
-
-The generated frequencies are computed from $\tilde{X}$. Each row of $\tilde{X}$ is nearly one-hot after Gumbel-Softmax, so summing column $i$ counts how many slots selected atom type $i$:
-\[
-  \hat{p}_i = \frac{1}{N} \sum_{v=1}^{N} \tilde{X}_{v, i}.
-\]
-Both $\hat{p}$ and $p^c$ are probability distributions over the same $D$ atom types. The penalty is the squared L2 distance between them, summed across types:
-\[
-  \mathcal{L}_{\text{type}} = \lambda_{\text{type}} \sum_{i=1}^{D} (\hat{p}_i - p_i^c)^2,
-\]
-with $\lambda_{\text{type}} = 1$. The coefficient is smaller than $\lambda_{\text{size}}$ because the sum already accumulates $D$ squared errors and reaches meaningful magnitudes with a unit weight.
-
-The natural distance between probability distributions is KL divergence, not L2. We use L2 for three reasons:
-\begin{enumerate}[nosep]
-  \item KL is undefined when $p_i^c = 0$, because the formula contains $\log(\hat{p}_i / p_i^c)$. On MUTAG, some classes contain zero instances of some atom types, so this is a concrete problem.
-  \item KL is asymmetric: $D_{\text{KL}}(\hat{p} \,\|\, p^c) \neq D_{\text{KL}}(p^c \,\|\, \hat{p})$. The two directions favour different failure modes and selecting one requires arbitrary justification. L2 is symmetric by construction.
-  \item KL has a gradient with a $1/p_i^c$ factor that explodes for rare atom types. The L2 gradient is $2(\hat{p}_i - p_i^c)$, bounded and stable.
-\end{enumerate}
-
-\paragraph{Gradient path.}
-$\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss components. Its gradients flow from scalar arithmetic on $(\tilde{A}, \tilde{X})$ through the Gumbel-Softmax backward pass into the generator MLP, without invoking the discriminator or the classifier. It is therefore the cheapest term per training step, since every other term requires a full network forward and backward pass while $\mathcal{L}_{\text{reg}}$ is closed-form. The target class enters only through the precomputed statistics $\bar{n}_c$ and $p^c$, so changing the target class requires no change to the computation graph.
+Two design choices follow from the structure of the two terms. The size penalty uses relative rather than absolute error, so $\lambda_{\text{size}}$ does not need retuning across datasets with different mean graph sizes. The atom-type penalty uses squared L2 rather than KL divergence, so the loss remains well-defined when some atom types have $p_i^c = 0$, which occurs on MUTAG. $\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss components, since its gradients flow directly through the Gumbel-Softmax backward pass into the generator MLP without invoking the discriminator or the classifier. The construction of $\hat{n}$ and $\hat{p}$, the choice of the sigmoid scale in the soft size count, and the full L2-vs-KL discussion are in Appendix~\ref{app:reg}.
 
 \subsection{Dense Wrapper for Differentiable $k$-GNN Inference}
 \label{sec:dense-wrapper}
@@ -718,7 +599,7 @@ MUTAG is a molecule dataset, so the most direct comparison is based on atom type
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/mutag/comparison/figures/example_graphs.png}
-\caption{Illustrative MUTAG examples. Each row shows three graphs from one source: real dataset graphs, top-ranked saved 1-GNN explanations, or top-ranked saved 1-2-GNN explanations. These examples are for visual orientation only; the quantitative claims use the full 1000-graph generated populations.}
+\caption{Illustrative MUTAG examples. Each row shows three median-sized examples from one source: real dataset graphs, the 1-GNN generated population, or the 1-2-GNN generated population. These examples are for visual orientation only; the quantitative claims use the full 1000-graph generated populations.}
 \label{fig:mutag-examples}
 \end{figure}
 
@@ -808,7 +689,7 @@ PROTEINS has a different type of graph structure. The nodes are secondary-struct
 \begin{figure}[htbp]
 \centering
 \includegraphics[width=\textwidth]{results/proteins/comparison/figures/example_graphs.png}
-\caption{Illustrative PROTEINS examples. Each row shows three graphs from one source: real dataset graphs, top-ranked saved 1-GNN explanations, or top-ranked saved 1-2-GNN explanations. The generated examples make the population-level shifts easier to see, but they are not used as standalone evidence.}
+\caption{Illustrative PROTEINS examples. Each row shows three median-sized examples from one source: real dataset graphs, the 1-GNN generated population, or the 1-2-GNN generated population. The generated examples make the population-level shifts easier to see, but they are not used as standalone evidence.}
 \label{fig:proteins-examples}
 \end{figure}
 
@@ -1000,5 +881,147 @@ J.~Sun, S.~Pei, F.~Zhang, and N.~V. Chawla.
 \newblock \emph{Neurocomputing}, 2025.
 
 \end{thebibliography}
+
+% ============================================================
+% Appendix
+% ============================================================
+\appendix
+
+\refstepcounter{section}
+\label{app:discriminator}
+\section*{Appendix A: Discriminator and WGAN-GP Details}
+\addcontentsline{toc}{section}{Appendix A: Discriminator and WGAN-GP Details}
+
+This appendix expands the adversarial component summarised in Section~\ref{sec:training}: the discriminator architecture, the two-player training dynamics, and the derivation of WGAN-GP including why the gradient penalty rules out weight rescaling. The shorthand and notation are as in Section~\ref{sec:training}.
+
+\subsection{The Discriminator}
+
+The discriminator $\mathcal{D}$ is a graph neural network that maps a graph to a single scalar. It operates on dense batched inputs (node features $\mathbf{X} \in \mathbb{R}^{B \times N \times D}$ and adjacency $\mathbf{A} \in [0,1]^{B \times N \times N}$) so that the same forward pass handles both real and generated graphs. The architecture has three stages:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Two dense GCN layers} with hidden dimension 128 and ReLU activations. Each layer computes $\mathbf{H}^{(t)} = \sigma(\hat{\mathbf{A}}\,\mathbf{H}^{(t-1)}\,\mathbf{W}^{(t)})$, where $\hat{\mathbf{A}}$ is the adjacency with self-loops added and symmetric degree normalisation applied.
+  \item \textbf{Mean pooling} across the node dimension: $\mathbf{h}_G = \frac{1}{N} \sum_{v=1}^{N} \mathbf{h}_v^{(2)} \in \mathbb{R}^{128}$. This produces a single graph-level vector per graph.
+  \item \textbf{Two-layer MLP} with LeakyReLU activation (negative slope $\alpha = 0.2$, as in Section~\ref{sec:generator}): $\mathcal{D}(G) = \mathbf{w}^\top \text{LeakyReLU}_{0.2}(\mathbf{W}\,\mathbf{h}_G) \in \mathbb{R}$. In the discriminator the LeakyReLU choice is standard for GAN training, where ReLU's zero-gradient half-plane can cause dead units that stop contributing signal to the generator during adversarial updates.
+\end{enumerate}
+
+Higher values of $\mathcal{D}(G)$ indicate that the graph appears real; lower values indicate that it appears generated. There is no sigmoid or softmax at the output, so $\mathcal{D}(G)$ is not a probability. In a standard binary classifier, the scalar would pass through a sigmoid $\sigma(x) = 1/(1+e^{-x})$ to produce a value in $[0, 1]$. Here the output is left unbounded. The reason is explained below in the comparison with vanilla GANs.
+
+The discriminator is distinct from the pretrained $k$-GNN classifier $\Phi$ used in $\mathcal{L}_{\text{GNN}}$: $\mathcal{D}$ is trained from scratch during GIN-Graph training and scores graphs on realism, while $\Phi$ is frozen and scores graphs on class membership.
+
+\subsection{The Two-Player Setup}
+
+The generator $\mathcal{G}$ and the discriminator $\mathcal{D}$ are trained in alternating steps:
+
+\begin{itemize}[nosep]
+  \item The \textbf{discriminator} receives a batch of real graphs from the training set and a batch of generated graphs from the current generator, and updates its weights to increase scores on real graphs and decrease scores on generated graphs.
+  \item The \textbf{generator} produces a batch of graphs, passes them through the discriminator, and updates its weights to increase the scores the discriminator assigns.
+\end{itemize}
+
+Neither network is trained to convergence; they co-evolve. In each training step, the discriminator updates once, then the generator updates once ($n_{\text{critic}} = 1$). This alternation is necessary. If $\mathcal{D}$ were trained to convergence against a fixed generator, its output would be correct (low on all generated graphs, high on all real graphs) but uninformative as a gradient signal: the generated region of input space would become flat, so small changes to a generated graph would not change $\mathcal{D}$'s score, and the generator would receive no direction for improvement. Keeping $\mathcal{D}$ partially trained ensures that its scores still vary across the region where the generator's current outputs lie.
+
+\subsection{Discriminator and Generator Losses}
+
+In each training step, we draw a batch of $B = 64$ real graphs $G$ from the training set and a batch of $B$ fake graphs $\tilde{G}$ from the generator. The discriminator minimises
+\begin{equation}
+  \mathcal{L}_D = \underbrace{\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})]}_{\text{score on fake}} - \underbrace{\mathbb{E}_{G \sim p_{\text{data}}}[\mathcal{D}(G)]}_{\text{score on real}} + \underbrace{\lambda_{\text{GP}} \, \mathbb{E}_{\hat{G}}\!\left[(\|\nabla_{\hat{G}} \mathcal{D}(\hat{G})\|_2 - 1)^2\right]}_{\text{gradient penalty}},
+  \label{eq:wgan-d}
+\end{equation}
+with $\lambda_{\text{GP}} = 10$, where each expectation $\mathbb{E}[\cdot]$ is in practice the average over one batch. Consider the first two terms:
+
+\begin{itemize}[nosep]
+  \item $\mathbb{E}_{\tilde{G} \sim \mathcal{G}}[\mathcal{D}(\tilde{G})]$ is the average score the discriminator assigns to generated graphs. The discriminator minimises $\mathcal{L}_D$, so it pushes this term down, assigning \emph{low} scores to generated graphs.
+  \item $-\mathbb{E}_{G \sim p_{\text{data}}}[\mathcal{D}(G)]$ is the negative of the average score on real graphs. Minimising this term pushes the average score on real graphs \emph{up}.
+\end{itemize}
+
+Together, these two terms encode one instruction: push real scores up, push generated scores down. The third term, the gradient penalty, is a stability device explained below.
+
+The generator's adversarial loss in Equation~\eqref{eq:wgan-g} is the negation of the discriminator's ``score on fake'' term. The generator wants to maximise the score the discriminator assigns to its outputs. Since optimisers minimise by convention, we negate: minimising $-\mathbb{E}[\mathcal{D}(\tilde{G})]$ is equivalent to maximising $\mathbb{E}[\mathcal{D}(\tilde{G})]$. Real graphs do not appear in $\mathcal{L}_{\text{GAN}}$. The generator never sees real data directly. It learns about the real distribution only through the gradient signal from $\mathcal{D}$: real graphs train $\mathcal{D}$, and $\mathcal{D}$'s gradient informs the generator how to adjust its outputs. This indirect chain, from real data to $\mathcal{D}$'s parameters to $\mathcal{D}$'s gradient to the generator's parameters, is the core mechanism of GANs.
+
+\subsection{Why WGAN-GP and Not a Vanilla GAN}
+
+In a vanilla GAN, the discriminator ends in a sigmoid, so its output is a value in $[0, 1]$ interpreted as the probability of the input being real. The problem is gradient saturation. Once $\mathcal{D}$ can reliably separate real from generated graphs, the sigmoid output for generated graphs is pushed toward 0. The derivative of the sigmoid $\sigma(x) = 1/(1+e^{-x})$ is $\sigma(x)(1 - \sigma(x))$, which approaches zero when $\sigma(x) \approx 0$ or $\sigma(x) \approx 1$. The generator's weight updates are computed via the chain rule as a product of derivatives, one of which is this sigmoid derivative. A near-zero factor makes the entire product near-zero, and the generator stops learning. This is the core difficulty of vanilla GAN training.
+
+WGAN removes the sigmoid. The discriminator's output is an unbounded real number with no flat region. When $\mathcal{D}$ becomes strong, its output for generated graphs continues decreasing, and the derivative remains non-degenerate, so the generator continues to receive a gradient signal.
+
+Removing the sigmoid introduces a new problem: without any bound on $\mathcal{D}$'s output, it can reduce its loss without limit by scaling its weights up. Doubling all weights roughly doubles the output gap between real and generated scores. The gradient penalty in Equation~\eqref{eq:wgan-d} prevents this. The term
+\[
+  \lambda_{\text{GP}} \, \mathbb{E}_{\hat{G}}\!\left[(\|\nabla_{\hat{G}} \mathcal{D}(\hat{G})\|_2 - 1)^2\right]
+\]
+penalises deviation of the gradient magnitude of $\mathcal{D}$'s output (with respect to its input $\hat{G}$) from 1. Here $\hat{G} = \epsilon G + (1-\epsilon)\tilde{G}$ with $\epsilon \sim \text{Uniform}(0,1)$ is a random interpolation between a real and a generated graph, so the penalty is evaluated at points between the two distributions. The coefficient $\lambda_{\text{GP}} = 10$.
+
+This constraint has two effects. First, $\mathcal{D}$ cannot reduce its loss by weight rescaling. Consider a linear discriminator $D_\psi(G) = \psi^\top \mathrm{vec}(G)$ as a tractable case. Then $\nabla_G D_\psi = \psi$, so $\|\nabla_G D_\psi\|_2 = \|\psi\|_2$. Rescaling the weights $\psi \mapsto k\psi$ rescales the gradient norm to $k\|\psi\|_2$, and the gradient-penalty term becomes $(k\|\psi\|_2 - 1)^2$, which grows quadratically in $k$ and dominates $\mathcal{L}_D$ for large $k$. For the deep LeakyReLU discriminator used here, the activations are positively homogeneous ($\text{LeakyReLU}_\alpha(c\,x) = c\,\text{LeakyReLU}_\alpha(x)$ for $c \geq 0$), so scaling every weighted layer by $k$ scales the output by $k^L$ with $L$ the number of weighted layers, and the gradient norm scales the same way. The penalty therefore forbids rescaling as a route to lower $\mathcal{L}_D$: any rescaling inflates the penalty much faster than it can inflate the adversarial gap between real and generated scores. Second, the gradient flowing from $\mathcal{D}$ into the generator remains at a bounded magnitude, neither vanishing (the vanilla GAN failure) nor exploding (the unconstrained WGAN failure).
+
+In summary: a vanilla GAN's sigmoid saturates when $\mathcal{D}$ is confident, killing the generator's gradient. WGAN-GP removes the sigmoid and adds a gradient penalty that keeps the gradient magnitude near 1. The generator therefore receives a non-degenerate learning signal regardless of $\mathcal{D}$'s strength.
+
+\refstepcounter{section}
+\label{app:reg}
+\section*{Appendix B: Structural Regularisation Derivations}
+\addcontentsline{toc}{section}{Appendix B: Structural Regularisation Derivations}
+
+This appendix derives the size and atom-type penalties whose combined loss is stated in Equation~\eqref{eq:reg}. The regulariser decomposes as $\mathcal{L}_{\text{reg}} = \mathcal{L}_{\text{size}} + \mathcal{L}_{\text{type}}$, where $\mathcal{L}_{\text{size}}$ penalises deviation from the class mean graph size and $\mathcal{L}_{\text{type}}$ penalises deviation from the class atom-type distribution. Both targets are precomputed once from the real training set and remain fixed during training.
+
+\subsection{Size penalty}
+
+The generator outputs a fixed $N \times N$ matrix with no flag marking which slots are active. A slot is effectively active if it has at least one edge to another slot, so the natural notion of graph size is the number of slots with at least one edge.
+
+Define the soft degree of slot $v$ as the row-sum of the soft adjacency matrix:
+\[
+  d_v = \sum_{u=1}^{N} \tilde{A}_{vu}.
+\]
+A slot with no edges has $d_v \approx 0$; a slot with one edge has $d_v \approx 1$; a slot with three edges has $d_v \approx 3$. The naive active-slot count would use an indicator:
+\[
+  \hat{n}_{\text{naive}} = \sum_{v=1}^{N} \mathbb{1}[d_v > 0.5],
+\]
+treating a slot as active if it has at least half an edge of connection. This does not work for training: the indicator is a step function with derivative zero almost everywhere and undefined at the step. Any gradient flowing from $\mathcal{L}_{\text{size}}$ through this path collapses to zero.
+
+We therefore replace the step with a smooth approximation. The logistic sigmoid $\sigma(x) = 1/(1 + e^{-x})$ approximates a step at $x = 0$. To place the transition at $d_v = 0.5$ and sharpen it, we shift the argument by $0.5$ and scale by $10$:
+\[
+  \hat{n} = \sum_{v=1}^{N} \sigma\bigl(10 \cdot (d_v - 0.5)\bigr).
+\]
+The multiplier 10 is steep enough that slots with $d_v < 0.3$ contribute near zero and slots with $d_v > 0.7$ contribute near one:
+
+\begin{center}
+\begin{tabular}{lccccc}
+\toprule
+$d_v$ & 0 & 0.3 & 0.5 & 0.7 & 1.0 \\
+$\sigma(10(d_v - 0.5))$ & 0.007 & 0.12 & 0.50 & 0.88 & 0.99 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The expression approximates the active-slot count on the forward pass while providing non-zero gradients everywhere on the backward pass.
+
+With $\hat{n}$ (soft count of active slots) and $\bar{n}_c$ (mean node count of real class-$c$ graphs, precomputed once), the size penalty is
+\[
+  \mathcal{L}_{\text{size}} = \lambda_{\text{size}} \left(\frac{\hat{n} - \bar{n}_c}{\bar{n}_c}\right)^2.
+\]
+Two design choices matter. The squared error is smooth at zero with derivative vanishing as the error approaches zero, so the generator settles into the target without oscillation; the absolute value has a non-differentiable corner at zero and a constant-magnitude gradient. The division by $\bar{n}_c$ converts the error into a relative error, making the penalty scale-invariant across datasets: a 5-node error on MUTAG class 0 ($\bar{n}_c \approx 13.9$) is a $\sim$36\% failure, while the same error on a dataset with $\bar{n}_c \approx 40$ is only $\sim$12.5\%. Without this normalisation, $\lambda_{\text{size}}$ would need to be retuned for every new dataset.
+
+The coefficient $\lambda_{\text{size}} = 10$ is ten times larger than $\lambda_{\text{type}}$ because a size violation breaks the graph structurally (a 50-node molecule where the class mean is 14 is unrecognisable), while atom-type violations are a softer failure.
+
+\subsection{Atom-type penalty}
+
+For each class $c$, the target distribution $p^c = (p_1^c, \ldots, p_D^c)$ is the frequency of each atom type in real class-$c$ graphs, where $p_i^c$ is the fraction of atoms of type $i$. This is a probability vector: entries in $[0, 1]$ summing to 1. For MUTAG class 0, $p^c \approx (0.85, 0.08, 0.04, \ldots)$ across the $D = 7$ atom types, with carbon dominating. Computed once, stored, reused.
+
+The generated frequencies are computed from $\tilde{X}$. Each row of $\tilde{X}$ is nearly one-hot after Gumbel-Softmax, so summing column $i$ counts how many slots selected atom type $i$:
+\[
+  \hat{p}_i = \frac{1}{N} \sum_{v=1}^{N} \tilde{X}_{v, i}.
+\]
+Both $\hat{p}$ and $p^c$ are probability distributions over the same $D$ atom types. The penalty is the squared L2 distance between them, summed across types:
+\[
+  \mathcal{L}_{\text{type}} = \lambda_{\text{type}} \sum_{i=1}^{D} (\hat{p}_i - p_i^c)^2,
+\]
+with $\lambda_{\text{type}} = 1$. The coefficient is smaller than $\lambda_{\text{size}}$ because the sum already accumulates $D$ squared errors and reaches meaningful magnitudes with a unit weight.
+
+The natural distance between probability distributions is KL divergence, not L2. We use L2 for three reasons:
+\begin{enumerate}[nosep]
+  \item KL is undefined when $p_i^c = 0$, because the formula contains $\log(\hat{p}_i / p_i^c)$. On MUTAG, some classes contain zero instances of some atom types, so this is a concrete problem.
+  \item KL is asymmetric: $D_{\text{KL}}(\hat{p} \,\|\, p^c) \neq D_{\text{KL}}(p^c \,\|\, \hat{p})$. The two directions favour different failure modes and selecting one requires arbitrary justification. L2 is symmetric by construction.
+  \item KL has a gradient with a $1/p_i^c$ factor that explodes for rare atom types. The L2 gradient is $2(\hat{p}_i - p_i^c)$, bounded and stable.
+\end{enumerate}
+
+\subsection{Gradient path}
+
+$\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss components. Its gradients flow from scalar arithmetic on $(\tilde{A}, \tilde{X})$ through the Gumbel-Softmax backward pass into the generator MLP, without invoking the discriminator or the classifier. It is therefore the cheapest term per training step, since every other term requires a full network forward and backward pass while $\mathcal{L}_{\text{reg}}$ is closed-form. The target class enters only through the precomputed statistics $\bar{n}_c$ and $p^c$, so changing the target class requires no change to the computation graph.
 
 \end{document}
