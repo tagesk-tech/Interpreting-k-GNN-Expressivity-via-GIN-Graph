@@ -502,9 +502,16 @@ PROTEINS & 1-2-GNN & 49{,}858 & 73.1\% & 78.9\% & 75 \\
 \end{tabular}
 \end{table}
 
-\subsubsection{Generator training convergence}
+\subsubsection{Generator training behaviour}
 
-All four generators reached the 300-epoch horizon without divergence on both datasets.
+All eight generator runs reached the 300-epoch horizon without divergence. Figure~\ref{fig:training-example} shows one representative training history. The adversarial losses are not expected to decrease monotonically, because the generator and discriminator are trained against each other. The useful sanity check is instead that the training remains bounded while the target-class prediction probability rises and the dynamic weight schedule shifts emphasis from adversarial realism to class-specific guidance.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.9\textwidth]{results/mutag/12gnn_class1/figures/training.png}
+\caption{Representative GIN-Graph training history for the MUTAG 1-2-GNN Mutagen generator. The plot is used as a training-dynamics sanity check rather than as proof of monotonic convergence: GAN losses can oscillate because the generator and discriminator co-evolve during training.}
+\label{fig:training-example}
+\end{figure}
 
 \subsubsection{Validation-score component sanity}
 
