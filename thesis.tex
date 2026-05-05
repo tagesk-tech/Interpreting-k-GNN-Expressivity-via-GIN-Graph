@@ -134,7 +134,7 @@ Common choices for READOUT include sum, mean, and max pooling over the node set.
 
 \subsection{The $k$-WL Hierarchy and $k$-GNNs}
 
-The 1-dimensional \emph{Weisfeiler--Leman} (1-WL) test decides graph isomorphism up to a known failure class by iteratively hashing node labels. Each node's new label is a hash of its current label together with the multiset of its neighbours' labels. After convergence, two graphs are declared possibly isomorphic iff their label histograms agree.
+Two graphs are \emph{isomorphic} if one can be obtained from the other by relabelling nodes. The 1-dimensional \emph{Weisfeiler--Leman} (1-WL) test decides isomorphism up to a known failure class by iteratively hashing node labels. Each node's new label is a hash of its current label together with the multiset of its neighbours' labels. After convergence, two graphs are declared possibly isomorphic iff their label histograms agree.
 
 The standard failure mode is that 1-WL cannot tell apart two graphs in which every node has the same local signature. The canonical example is two disjoint triangles versus a single hexagon: every node is degree 2 with two degree-2 neighbours, so the histograms match at every iteration even though the graphs are not isomorphic.
 
@@ -194,10 +194,10 @@ A 1-GNN aggregates only over individual node neighbourhoods, and two graphs in w
 
 A pair feature is a fixed-dimensional vector attached to each unordered node pair that summarises the pair together with an indicator of its edge status in the original graph. For each pair $s = \{u, v\}$ with canonical ordering $u < v$, the initial pair feature is built from the two 1-GNN node embeddings together with the edge indicator:
 \begin{equation}
-  \mathbf{f}_s^{(0)} = \left[\mathbf{h}_u^{(T)} \;\|\; \mathbf{h}_v^{(T)} \;\|\; \mathbb{1}[(u,v) \in E]\right] \in \mathbb{R}^{2d_T + 1},
+  \mathbf{f}_s^{(0)} = \left[\mathbf{h}_u^{(T)} \;\|\; \mathbf{h}_v^{(T)} \;\|\; A_{uv}\right] \in \mathbb{R}^{2d_T + 1},
   \label{eq:2set-feat}
 \end{equation}
-The concatenation of $\mathbf{h}_u^{(T)}$ and $\mathbf{h}_v^{(T)}$ carries the node-level context from the 1-GNN, and the bond bit $\mathbb{1}[(u,v)\in E] \in \{0,1\}$ acts as the isomorphism-type marker for the pair, distinguishing bonded pairs from unbonded pairs that would otherwise share the same node-level content.
+The first two slots concatenate the 1-GNN embeddings of the two endpoints, so the pair feature carries the node-level context of both $u$ and $v$. The third slot, $A_{uv} \in \{0,1\}$, is the entry of the adjacency matrix for the pair: it is $1$ if $(u,v)$ is an edge in the original graph and $0$ otherwise. This bond bit acts as the isomorphism-type marker for the pair, distinguishing bonded pairs from unbonded pairs that would otherwise share the same node-level content.
 
 Message passing on pairs uses a neighbourhood in which each neighbour of $s = \{u,v\}$ is obtained by replacing one of its two elements with a node adjacent in $G$ to the removed element:
 \begin{equation}
@@ -361,7 +361,7 @@ First, we construct pair features from the 1-GNN node embeddings $\mathbf{H}^{(T
   \mathbf{F}[i,j] = \left[\mathbf{h}_{\min(i,j)} \;\|\; \mathbf{h}_{\max(i,j)} \;\|\; A_{ij}\right] \in \mathbb{R}^{2d_T + 1},
   \label{eq:dense-2gnn-feat}
 \end{equation}
-A 2-set $\{i, j\}$ is unordered, but the pair tensor $\mathbf{F}$ is indexed by the ordered tuple $(i, j)$, so each pair occupies two tensor slots: $\mathbf{F}[i,j]$ and $\mathbf{F}[j,i]$. Without canonicalisation, these two slots would hold the same node embeddings in opposite concatenation order, $\mathbf{h}_i \;\|\; \mathbf{h}_j$ versus $\mathbf{h}_j \;\|\; \mathbf{h}_i$, and the downstream learnable transformation $\mathbf{W}_4^{(\ell)}$ would map them to different outputs, breaking the unordered-pair semantics of Equation~\eqref{eq:2set-nbr}. Sorting the indices by $\min$ and $\max$ enforces $\mathbf{F}[i,j] = \mathbf{F}[j,i]$ by construction, while preserving both node embeddings as distinct blocks so that the pair-level MLP can still distinguish their roles. The third entry $\tilde{A}_{ij}$ is the isomorphism-type indicator; in the sparse model this was a hard bit $\mathbb{1}[(i,j) \in E] \in \{0,1\}$, whereas here it is the continuous value from the generator. It is already symmetric because $\tilde{A}$ is symmetrised at the sampling stage (Equation~\eqref{eq:adj-symmetry}) and requires no further canonicalisation.
+A 2-set $\{i, j\}$ is unordered, but the pair tensor $\mathbf{F}$ is indexed by the ordered tuple $(i, j)$, so each pair occupies two tensor slots: $\mathbf{F}[i,j]$ and $\mathbf{F}[j,i]$. Without canonicalisation, these two slots would hold the same node embeddings in opposite concatenation order, $\mathbf{h}_i \;\|\; \mathbf{h}_j$ versus $\mathbf{h}_j \;\|\; \mathbf{h}_i$, and the downstream learnable transformation $\mathbf{W}_4^{(\ell)}$ would map them to different outputs, breaking the unordered-pair semantics of Equation~\eqref{eq:2set-nbr}. Sorting the indices by $\min$ and $\max$ enforces $\mathbf{F}[i,j] = \mathbf{F}[j,i]$ by construction, while preserving both node embeddings as distinct blocks so that the pair-level MLP can still distinguish their roles. The third entry $\tilde{A}_{ij}$ is the isomorphism-type indicator; in the sparse model this was the hard adjacency entry $A_{ij} \in \{0,1\}$, whereas here it is the continuous value from the generator. It is already symmetric because $\tilde{A}$ is symmetrised at the sampling stage (Equation~\eqref{eq:adj-symmetry}) and requires no further canonicalisation.
 
 For pair-level message passing, recall from Equation~\eqref{eq:2set-nbr} that each 2-set $\{i, j\}$ has two kinds of neighbours: pairs formed by replacing $i$ with some $w$ adjacent to $i$, and pairs formed by replacing $j$ with some $w$ adjacent to $j$. In the dense version, ``adjacent to $i$'' is the continuous weight $\tilde{A}_{iw}$. Using the transformed features $\mathbf{g} = \mathbf{F}\,\mathbf{W}_4^{(\ell)} \in \mathbb{R}^{B \times N \times N \times d_T}$, the aggregation for pair $(i,j)$ sums over all candidate $w$, weighted by $\tilde{A}$:
 \begin{align}
@@ -1020,7 +1020,7 @@ Define the soft degree of slot $v$ as the row-sum of the soft adjacency matrix:
 \]
 A slot with no edges has $d_v \approx 0$; a slot with one edge has $d_v \approx 1$; a slot with three edges has $d_v \approx 3$. The naive active-slot count would use an indicator:
 \[
-  \hat{n}_{\text{naive}} = \sum_{v=1}^{N} \mathbb{1}[d_v > 0.5],
+  \hat{n}_{\text{naive}} = \sum_{v=1}^{N} \mathbf{1}[d_v > 0.5],
 \]
 treating a slot as active if it has at least half an edge of connection. This does not work for training: the indicator is a step function with derivative zero almost everywhere and undefined at the step. Any gradient flowing from $\mathcal{L}_{\text{size}}$ through this path collapses to zero.
 
