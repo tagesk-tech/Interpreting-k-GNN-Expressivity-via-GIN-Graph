@@ -89,7 +89,7 @@ On MUTAG, both classifiers reach the same test accuracy (89.5\%), yet their gene
 
 Graph Neural Networks (GNNs) have become the standard approach for learning on graph-structured data, achieving strong results on tasks ranging from molecular property prediction to social network analysis. Despite their effectiveness, GNNs suffer from the same interpretability challenges as other deep learning models: their predictions are difficult to explain in human-understandable terms.
 
-The expressiveness of standard message-passing GNNs is bounded by the 1-dimensional Weisfeiler--Leman (1-WL) graph isomorphism test~\cite{morris2019weisfeiler}. Morris et al.~\cite{morris2019weisfeiler} proposed $k$-GNNs that operate on $k$-element subsets of nodes, achieving expressiveness equivalent to the $k$-WL test. In theory, higher-order $k$-GNNs can distinguish graph structures that standard GNNs cannot.
+The expressiveness of standard message-passing GNNs is bounded by the 1-dimensional Weisfeiler--Leman (1-WL) graph isomorphism test. Morris et al.~\cite{morris2019weisfeiler} proposed $k$-GNNs that operate on $k$-element subsets of nodes, achieving expressiveness equivalent to the $k$-WL test. In theory, higher-order $k$-GNNs can distinguish graph structures that standard GNNs cannot.
 
 A natural question arises: \emph{does this additional structural expressiveness lead the model to learn different internal representations of graph classes, and can we observe these differences through generated explanations?} If a model captures richer structural patterns, the explanations it produces (representative graphs that characterise each class) may reveal what structural features each architecture has learned to associate with each class.
 
