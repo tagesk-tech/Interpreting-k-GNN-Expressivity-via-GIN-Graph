@@ -11,19 +11,56 @@
 \usepackage{subcaption}
 \usepackage[hidelinks]{hyperref}
 \usepackage{enumitem}
+\usepackage{setspace}
+\usepackage{helvet}
 
 % Compact spacing
 \setlength{\parskip}{0.4em}
 \setlength{\parindent}{0em}
 
 % ============================================================
-% Title
+% Title page (KTH KEX template, adapted for pdflatex with Helvetica)
 % ============================================================
-\title{%
-  \textbf{Hierarchical $k$-GNN Explanations via\\Generative Interpretation Networks}\\
-  \large Comparing 1-GNN and 1-2-GNN for Model-Level\\Graph Classification Interpretability
+\makeatletter
+\newcommand{\@authorone}{}
+\newcommand{\@authortwo}{}
+\newcommand{\@subtitle}{}
+\newcommand{\authorone}[1]{\gdef\@authorone{#1}}
+\newcommand{\authortwo}[1]{\gdef\@authortwo{#1}}
+\newcommand{\subtitle}[1]{\gdef\@subtitle{#1}}
+
+\renewcommand\maketitle{%
+  \begingroup
+  \renewcommand{\familydefault}{\sfdefault}\selectfont
+  \newgeometry{top=0in,bottom=0in}%
+  \vspace*{0.50cm}
+  \begin{center}
+    \hspace{0.1cm}\includegraphics[width=3.06cm]{misc/image2.png}\\
+    \vspace*{0.69cm}
+    \setstretch{0.0}
+    \setlength{\parskip}{0pt}
+    \vspace{60pt}
+    {\fontsize{12pt}{0pt}\selectfont Examensarbete inom teknik}\\
+    \vspace{12.96pt}
+    {\fontsize{10pt}{0pt}\selectfont Grundnivå, 15 hp}\\
+    \vspace{45pt}
+    {\bfseries\fontsize{26pt}{30pt}\selectfont \@title}\\
+    \vspace{18pt}
+    {\fontsize{16pt}{20pt}\selectfont \@subtitle}\\
+    \vspace{33pt}
+    {\bfseries\fontsize{12pt}{0pt}\selectfont \@authorone}\\
+    \vspace{31pt}
+    {\bfseries\fontsize{12pt}{0pt}\selectfont \@authortwo}\\
+  \end{center}
+  \restoregeometry
+  \endgroup
 }
-\author{Tage Sköldefors \and Maximillian Nordler}
+\makeatother
+
+\title{Hierarchical $k$-GNN Explanations via Generative Interpretation Networks}
+\subtitle{Comparing 1-GNN and 1-2-GNN for Model-Level Graph Classification Interpretability}
+\authorone{Tage Sköldefors}
+\authortwo{Maximillian Nordler}
 \date{March 2026}
 
 \begin{document}
@@ -101,9 +138,7 @@ The 1-dimensional \emph{Weisfeiler--Leman} (1-WL) test decides graph isomorphism
 
 The standard failure mode is that 1-WL cannot tell apart two graphs in which every node has the same local signature. The canonical example is two disjoint triangles versus a single hexagon: every node is degree 2 with two degree-2 neighbours, so the histograms match at every iteration even though the graphs are not isomorphic.
 
-The $k$-WL test fixes this by hashing over $k$-tuples of nodes rather than individual nodes, which makes non-local structural differences visible; 2-WL already distinguishes the triangles-vs-hexagon example. Morris et al.~\cite{morris2019weisfeiler} showed that 1-GNNs are at most as powerful as 1-WL in distinguishing power, and that $k$-GNNs operating on $k$-element node subsets (``$k$-sets'') are at most as powerful as $k$-WL (their Propositions 1--4). The Cai--F\"urer--Immerman construction~\cite{cai1992optimal} further shows $(k{+}1)$-WL is strictly more powerful than $k$-WL for all $k \geq 2$. This is the motivation for considering a 1-2-GNN: it augments node-level message passing with pair-level message passing and can therefore capture structural distinctions invisible to a standard 1-GNN. We rely on these results as background and do not reproduce them here.
-
-Positional encodings take a different route past 1-WL, by adding structural information to the initial node features rather than working on higher-order sets~\cite{grotschla2026benchmarking}; we return to them in Section~\ref{sec:discussion}.
+The $k$-WL test fixes this by hashing over $k$-tuples of nodes rather than individual nodes, which makes non-local structural differences visible; 2-WL already distinguishes the triangles-vs-hexagon example. Morris et al.~\cite{morris2019weisfeiler} showed that 1-GNNs are at most as powerful as 1-WL in distinguishing power, and that $k$-GNNs operating on $k$-element node subsets (``$k$-sets'') are at most as powerful as $k$-WL (their Propositions 1--4). This is the motivation for considering a 1-2-GNN: it augments node-level message passing with pair-level message passing and can therefore capture structural distinctions invisible to a standard 1-GNN. We rely on these results as background and do not reproduce them here.
 
 \subsection{GIN-Graph}
 
@@ -864,11 +899,6 @@ These differences do not amount to a blanket advantage --- the generators preser
 K.~M. Borgwardt, C.~S. Ong, S.~Sch\"{o}nauer, S.~V.~N. Vishwanathan, A.~J. Smola, and H.-P. Kriegel.
 \newblock Protein function prediction via graph kernels.
 \newblock \emph{Bioinformatics}, 21(suppl\_1):i47--i56, 2005.
-
-\bibitem[Cai et~al.(1992)]{cai1992optimal}
-J.-Y. Cai, M.~F\"{u}rer, and N.~Immerman.
-\newblock An optimal lower bound on the number of variables for graph identification.
-\newblock \emph{Combinatorica}, 12(4):389--410, 1992.
 
 \bibitem[Debnath et~al.(1991)]{debnath1991structure}
 A.~K. Debnath, R.~L. {Lopez de Compadre}, G.~Debnath, A.~J. Shusterman, and C.~Hansch.
