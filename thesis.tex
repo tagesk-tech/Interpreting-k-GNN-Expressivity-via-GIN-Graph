@@ -276,7 +276,7 @@ The total generator loss combines adversarial, GNN-guidance, and structural regu
   \mathcal{L}_G = (1 - \lambda(t))\,\mathcal{L}_{\text{GAN}} + \lambda(t)\,\mathcal{L}_{\text{GNN}} + \mathcal{L}_{\text{reg}},
   \label{eq:total-loss}
 \end{equation}
-where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training, and $\mathcal{L}_{\text{reg}}$ comprises structural regularisation losses described below. The three terms correspond to three goals: making the generated graphs look realistic ($\mathcal{L}_{\text{GAN}}$), making them belong to the target class ($\mathcal{L}_{\text{GNN}}$), and making them the right size and composition ($\mathcal{L}_{\text{reg}}$). We now explain each in turn, beginning with the adversarial component and the discriminator that drives it.
+where $\lambda(t) \in [0, 1]$ is a dynamic weight that increases over training, and $\mathcal{L}_{\text{reg}}$ comprises structural regularisation losses described below. The three terms correspond to three goals: making the generated graphs look realistic ($\mathcal{L}_{\text{GAN}}$), making them belong to the target class ($\mathcal{L}_{\text{GNN}}$), and keeping their size, composition, and average degree close to the target class ($\mathcal{L}_{\text{reg}}$). We now explain each in turn, beginning with the adversarial component and the discriminator that drives it.
 
 \subsubsection{$\mathcal{L}_{\text{GAN}}$: Adversarial Loss}
 
@@ -311,14 +311,17 @@ When $t \ll pT$ (the first $\sim$120 epochs), the sigmoid argument is strongly n
 
 \subsubsection{$\mathcal{L}_{\text{reg}}$: Structural Regularisation}
 
-The generator outputs fixed-size $N \times N$ adjacency and $N \times D$ feature matrices ($N = 28$ for MUTAG, $N = 50$ for PROTEINS). Without explicit constraints, Gumbel-Softmax sampling activates most slots and settles on atom-type distributions that satisfy the classifier but do not resemble real class members. $\mathcal{L}_{\text{GAN}}$ constrains these statistics only indirectly through the discriminator and is too weak a signal to prevent these failures. $\mathcal{L}_{\text{reg}}$ therefore supplies direct supervision on two graph-level statistics, graph size and atom-type frequencies, both precomputed once from the real training set:
+The generator outputs fixed-size $N \times N$ adjacency and $N \times D$ feature matrices ($N = 28$ for MUTAG, $N = 50$ for PROTEINS). Without explicit constraints, Gumbel-Softmax sampling activates most slots and settles on atom-type distributions that satisfy the classifier but do not resemble real class members. $\mathcal{L}_{\text{GAN}}$ constrains these statistics only indirectly through the discriminator and is too weak a signal to prevent these failures. $\mathcal{L}_{\text{reg}}$ therefore supplies direct supervision on three graph-level statistics: average degree, graph size, and atom-type frequencies. The class targets for all three are precomputed once from the real training set:
 \begin{equation}
-  \mathcal{L}_{\text{reg}} = \lambda_{\text{size}} \cdot \left(\frac{\hat{n} - \bar{n}_c}{\bar{n}_c}\right)^2 + \lambda_{\text{type}} \cdot \sum_{i=1}^{D} \left(\hat{p}_i - p_i^c\right)^2,
+  \mathcal{L}_{\text{reg}} =
+  \lambda_{\text{degree}} \cdot \left(\frac{\hat{d} - \mu^d_c}{\sigma^d_c}\right)^2
+  + \lambda_{\text{size}} \cdot \left(\frac{\hat{n} - \bar{n}_c}{\bar{n}_c}\right)^2
+  + \lambda_{\text{type}} \cdot \sum_{i=1}^{D} \left(\hat{p}_i - p_i^c\right)^2,
   \label{eq:reg}
 \end{equation}
-with $\lambda_{\text{size}} = 10$ and $\lambda_{\text{type}} = 1$. The first term penalises deviation from the class mean graph size $\bar{n}_c$, where $\hat{n}$ is a soft, differentiable count of active slots in the generated adjacency, defined so that gradients flow from the size penalty back to the generator. The second term penalises deviation from the class atom-type distribution $p^c$, where $\hat{p}_i$ is the share of slots that the generator's near-one-hot feature output assigns to atom type $i$. Both targets, $\bar{n}_c$ and $p^c$, are computed once from the real class-$c$ training graphs.
+with $\lambda_{\text{degree}} = 1$, $\lambda_{\text{size}} = 10$, and $\lambda_{\text{type}} = 1$. The first term penalises deviation from the class mean of average degree $\mu^d_c$, scaled by the class standard deviation $\sigma^d_c$. The second term penalises deviation from the class mean graph size $\bar{n}_c$, where $\hat{n}$ is a soft count of active slots in the generated adjacency. The third term penalises deviation from the class atom-type distribution $p^c$, where $\hat{p}_i$ is the share of slots that the generator's near-one-hot feature output assigns to atom type $i$. The targets $\mu^d_c$, $\sigma^d_c$, $\bar{n}_c$, and $p^c$ are computed once from the real class-$c$ training graphs.
 
-Two design choices follow from the structure of the two terms. The size penalty uses relative rather than absolute error, so $\lambda_{\text{size}}$ does not need retuning across datasets with different mean graph sizes. The atom-type penalty uses squared L2 rather than KL divergence, so the loss remains well-defined when some atom types have $p_i^c = 0$, which occurs on MUTAG. $\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss components, since its gradients flow directly through the Gumbel-Softmax backward pass into the generator MLP without invoking the discriminator or the classifier. The construction of $\hat{n}$ and $\hat{p}$, the choice of the sigmoid scale in the soft size count, and the full L2-vs-KL discussion are in Appendix~\ref{app:reg}.
+Three design choices follow from the structure of the terms. The degree penalty is normalised by $\sigma^d_c$, so classes with broader degree variation get a broader target. The size penalty uses relative rather than absolute error, so $\lambda_{\text{size}}$ does not need retuning across datasets with different mean graph sizes. The atom-type penalty uses squared L2 rather than KL divergence, so the loss remains well-defined when some atom types have $p_i^c = 0$, which occurs on MUTAG. $\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss components, since its gradients flow directly through the Gumbel-Softmax backward pass into the generator MLP without invoking the discriminator or the classifier. The definition of $\hat{d}$, the construction of $\hat{n}$ and $\hat{p}$, the choice of the sigmoid scale in the soft size count, and the full L2-vs-KL discussion are in Appendix~\ref{app:reg}.
 
 \subsection{Dense Wrapper for Differentiable $k$-GNN Inference}
 \label{sec:dense-wrapper}
@@ -993,7 +996,7 @@ In summary: a vanilla GAN's sigmoid saturates when $\mathcal{D}$ is confident, k
 \section*{Appendix B: Structural Regularisation Derivations}
 \addcontentsline{toc}{section}{Appendix B: Structural Regularisation Derivations}
 
-This appendix derives the size and atom-type penalties whose combined loss is stated in Equation~\eqref{eq:reg}. The regulariser decomposes as $\mathcal{L}_{\text{reg}} = \mathcal{L}_{\text{size}} + \mathcal{L}_{\text{type}}$, where $\mathcal{L}_{\text{size}}$ penalises deviation from the class mean graph size and $\mathcal{L}_{\text{type}}$ penalises deviation from the class atom-type distribution. Both targets are precomputed once from the real training set and remain fixed during training.
+This appendix derives the degree, size, and atom-type penalties whose combined loss is stated in Equation~\eqref{eq:reg}. The regulariser decomposes as $\mathcal{L}_{\text{reg}} = \mathcal{L}_{\text{degree}} + \mathcal{L}_{\text{size}} + \mathcal{L}_{\text{type}}$, where $\mathcal{L}_{\text{degree}}$ penalises deviation from the class mean of average degree, $\mathcal{L}_{\text{size}}$ penalises deviation from the class mean graph size, and $\mathcal{L}_{\text{type}}$ penalises deviation from the class atom-type distribution. These targets are precomputed once from the real training set and remain fixed during training.
 
 \subsection{Size penalty}
 
@@ -1034,6 +1037,27 @@ Two design choices matter. The squared error is smooth at zero with derivative v
 
 The coefficient $\lambda_{\text{size}} = 10$ is ten times larger than $\lambda_{\text{type}}$ because a size violation breaks the graph structurally (a 50-node molecule where the class mean is 14 is unrecognisable), while atom-type violations are a softer failure.
 
+\subsection{Degree penalty}
+
+The degree penalty uses the same soft adjacency matrix. Let
+\[
+  \hat{m} = \frac{1}{2}\sum_{u=1}^{N}\sum_{v=1}^{N}\tilde{A}_{uv}
+\]
+be the soft edge count of the generated graph. The active-node count used for this term follows the implementation and treats a node as active once its soft degree exceeds 0.5:
+\[
+  \hat{n}_{\text{hard}} = \max\!\left(\sum_{v=1}^{N}\mathbf{1}[d_v > 0.5], 1\right).
+\]
+The generated average degree is then
+\[
+  \hat{d} = \frac{2\hat{m}}{\hat{n}_{\text{hard}}}.
+\]
+With $\mu^d_c$ and $\sigma^d_c$ denoting the mean and standard deviation of real average degrees in class $c$, the penalty is
+\[
+  \mathcal{L}_{\text{degree}} =
+  \lambda_{\text{degree}}\left(\frac{\hat{d} - \mu^d_c}{\sigma^d_c}\right)^2,
+\]
+with $\lambda_{\text{degree}} = 1$. Unlike the size penalty, this hard count is not the quantity being matched directly. It only rescales the differentiable edge count in the numerator. The active-node denominator keeps the statistic comparable to the real average degree, which is computed over non-empty graphs. This term is part of the generator training loss. At evaluation time, degree also appears separately in the validation score and the hard validity gate of Section~\ref{sec:validation}.
+
 \subsection{Atom-type penalty}
 
 For each class $c$, the target distribution $p^c = (p_1^c, \ldots, p_D^c)$ is the frequency of each atom type in real class-$c$ graphs, where $p_i^c$ is the fraction of atoms of type $i$. This is a probability vector: entries in $[0, 1]$ summing to 1. For MUTAG class 0, $p^c \approx (0.85, 0.08, 0.04, \ldots)$ across the $D = 7$ atom types, with carbon dominating. Computed once, stored, reused.
@@ -1057,6 +1081,6 @@ The natural distance between probability distributions is KL divergence, not L2.
 
 \subsection{Gradient path}
 
-$\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss components. Its gradients flow from scalar arithmetic on $(\tilde{A}, \tilde{X})$ through the Gumbel-Softmax backward pass into the generator MLP, without invoking the discriminator or the classifier. It is therefore the cheapest term per training step, since every other term requires a full network forward and backward pass while $\mathcal{L}_{\text{reg}}$ is closed-form. The target class enters only through the precomputed statistics $\bar{n}_c$ and $p^c$, so changing the target class requires no change to the computation graph.
+$\mathcal{L}_{\text{reg}}$ has the shortest gradient path of the three loss components. Its gradients flow from scalar arithmetic on $(\tilde{A}, \tilde{X})$ through the Gumbel-Softmax backward pass into the generator MLP, without invoking the discriminator or the classifier. It is therefore the cheapest term per training step, since every other term requires a full network forward and backward pass while $\mathcal{L}_{\text{reg}}$ is closed-form. The target class enters only through the precomputed statistics $\mu^d_c$, $\sigma^d_c$, $\bar{n}_c$, and $p^c$, so changing the target class requires no change to the computation graph.
 
 \end{document}
