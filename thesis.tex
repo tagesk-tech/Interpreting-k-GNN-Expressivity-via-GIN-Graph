@@ -445,11 +445,11 @@ The degree score provides a structural sanity check that $s$ and $p$ cannot prov
 
 \subsubsection{Validity Threshold}
 
-A generated graph is considered \textbf{valid} if two conditions hold: (i) $v > 0.5$, and (ii) $\bar{d}_{\tilde{G}}$ falls within 3 standard deviations of $\mu_d$. The degree score $d$ therefore appears twice: once as a soft component inside $v$, and once as a hard gate via the 3$\sigma$ condition. The hard gate catches graphs with abnormal connectivity regardless of their $s$ and $p$ values. A graph with $\bar{d}_{\tilde{G}}$ far outside the class range is rejected even if it scores well on the other two components. The validity rates reported in Section~\ref{sec:results} are filtered on both conditions.
+A generated graph is considered \textbf{valid} if two conditions hold: (i) $v > 0.5$, and (ii) $\bar{d}_{\tilde{G}}$ falls within 3 standard deviations of $\mu_d$. The degree score $d$ therefore appears twice: once as a soft component inside $v$, and once as a hard gate via the 3$\sigma$ condition. The hard gate catches graphs with abnormal connectivity regardless of their $s$ and $p$ values. A graph with $\bar{d}_{\tilde{G}}$ far outside the class range is rejected even if it scores well on the other two components. Any validity rates discussed below are filtered on both conditions.
 
 \subsubsection{Evaluation Protocol}
 
-Part A uses 100 generated graphs per configuration to report the validity rate, the mean validation score, and the component decomposition $s$, $p$, $d$ (Table~\ref{tab:sanity}). Part B uses larger 1000-graph generated populations for the qualitative comparison, since population fingerprints such as atom-type shares, edge-pair shifts, and cycle counts are too noisy when read from a small number of samples. All quantities are forward-pass computations on frozen networks. No training or gradients are involved during evaluation.
+Part A uses 100 generated graphs per configuration to compute validity rates and report the mean validation score and component decomposition $s$, $p$, $d$ (Table~\ref{tab:sanity}). Part B uses larger 1000-graph generated populations for the qualitative comparison, since population fingerprints such as atom-type shares, edge-pair shifts, and cycle counts are too noisy when read from a small number of samples. All quantities are forward-pass computations on frozen networks. No training or gradients are involved during evaluation.
 
 % ============================================================
 % 4. Experimental Setup
@@ -481,15 +481,14 @@ PROTEINS & 1113 & 3 (sec.\ str.) & 620 & 50 & Enzyme / non-enzyme \\
 
 \subsection{Model Configuration}
 
-All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers; the 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) for 100 epochs with cross-entropy loss. Data is split 80/20 into train/test with a fixed seed of 42.
+All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers. The 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) using cross-entropy loss. Table~\ref{tab:kgnn-results} reports the best epoch observed for each run. Data is split 80/20 into train/test with a fixed seed of 42.
 
 The GIN-Graph generator uses a latent dimension $d_z = 32$, hidden dimension $d_h = 128$, and is trained for 300 epochs with Adam (lr = 0.001) and batch size 64. WGAN-GP uses $\lambda_{\text{GP}} = 10$ and trains the discriminator once per generator update ($n_{\text{critic}} = 1$). The dynamic weighting uses $p = 0.4$ and $k = 10$ (Equation~\ref{eq:lambda}). The generation size is fixed at $N = 28$ for MUTAG and $N = 50$ for PROTEINS.
 
 \subsection{Evaluation Protocol}
 
-For each model-dataset-class combination, we generate 100 explanation graphs at evaluation temperature $\tau = 0.1$ and evaluate them using the validation score (Equation~\ref{eq:validation}). We report:
+For each model-dataset-class combination, we generate 100 explanation graphs at evaluation temperature $\tau = 0.1$ and evaluate them using the validation score (Equation~\ref{eq:validation}). We compute the validity rate and report:
 \begin{itemize}[nosep]
-  \item \textbf{Validity rate}: fraction of explanations passing degree and score thresholds;
   \item \textbf{Mean validation score}: averaged over all 100 generated graphs;
   \item \textbf{Component scores}: embedding similarity ($s$), prediction probability ($p$), degree score ($d$).
 \end{itemize}
