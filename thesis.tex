@@ -330,7 +330,7 @@ The pretrained classifier cannot be used directly inside the generator's trainin
 
 \subsubsection{Why the sparse form breaks the gradient}
 
-The classifier was trained using PyTorch Geometric's sparse graph representation: the adjacency is stored as an \texttt{edge\_index} tensor of integer source--destination pairs, and message passing is implemented as a \texttt{scatter\_add} over edges rather than as a dense matrix product $\mathbf{A}\mathbf{H}$. On discrete $\{0,1\}$ inputs the two forms compute identical outputs; sparse is simply faster and more memory-efficient because it skips the $O(N^2)$ zero-multiplications that dominate $\mathbf{A}\mathbf{H}$ when $\mathbf{A}$ is sparse.
+The classifier was trained using PyTorch~\cite{paszke2019pytorch} via PyTorch Geometric's sparse graph representation: the adjacency is stored as an \texttt{edge\_index} tensor of integer source--destination pairs, and message passing is implemented as a \texttt{scatter\_add} over edges rather than as a dense matrix product $\mathbf{A}\mathbf{H}$. On discrete $\{0,1\}$ inputs the two forms compute identical outputs; sparse is simply faster and more memory-efficient because it skips the $O(N^2)$ zero-multiplications that dominate $\mathbf{A}\mathbf{H}$ when $\mathbf{A}$ is sparse.
 
 This is fine for classifier training, where $\mathbf{A}$ is a fixed discrete input and no gradients need to flow through it. It breaks inside the generator's training loop, where the adjacency $\tilde{A} \in [0,1]^{N \times N}$ is a continuous tensor produced by the Gumbel-Softmax straight-through estimator and $\nabla_\phi \mathcal{L}_{\text{GNN}}$ requires the derivative $\partial f_\Phi / \partial \tilde{A}$. The sparse forward has no slot for a float adjacency: converting $\tilde{A}$ into an \texttt{edge\_index} requires a thresholding step whose derivative is zero everywhere. The chain rule for $\nabla_\phi \mathcal{L}_{\text{GNN}}$ then contains a zero factor, and the generator receives no signal from this term.
 
@@ -481,7 +481,7 @@ PROTEINS & 1113 & 3 (sec.\ str.) & 620 & 50 & Enzyme / non-enzyme \\
 
 \subsection{Model Configuration}
 
-All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers. The 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam (lr = 0.01) using cross-entropy loss. Table~\ref{tab:kgnn-results} reports the best epoch observed for each run. Data is split 80/20 into train/test with a fixed seed of 42.
+All $k$-GNN models use a hidden dimension of $d_T = 64$. The 1-GNN uses $T_1 = 3$ message-passing layers. The 1-2-GNN uses 3 layers for the 1-GNN component and $T_2 = 2$ layers for the 2-GNN component. Both use dropout of 0.5 and are trained with Adam~\cite{kingma2015adam} (lr = 0.01) using cross-entropy loss. Table~\ref{tab:kgnn-results} reports the best epoch observed for each run. Data is split 80/20 into train/test with a fixed seed of 42.
 
 The GIN-Graph generator uses a latent dimension $d_z = 32$, hidden dimension $d_h = 128$, and is trained for 300 epochs with Adam (lr = 0.001) and batch size 64. WGAN-GP uses $\lambda_{\text{GP}} = 10$ and trains the discriminator once per generator update ($n_{\text{critic}} = 1$). The dynamic weighting uses $p = 0.4$ and $k = 10$ (Equation~\ref{eq:lambda}). The generation size is fixed at $N = 28$ for MUTAG and $N = 50$ for PROTEINS.
 
@@ -907,10 +907,20 @@ E.~Jang, S.~Gu, and B.~Poole.
 \newblock Categorical reparameterization with {G}umbel-softmax.
 \newblock In \emph{ICLR}, 2017.
 
+\bibitem[Kingma and Ba(2015)]{kingma2015adam}
+D.~P. Kingma and J.~Ba.
+\newblock Adam: A method for stochastic optimization.
+\newblock In \emph{ICLR}, 2015.
+
 \bibitem[Morris et~al.(2019)]{morris2019weisfeiler}
 C.~Morris, M.~Ritzert, M.~Fey, W.~L. Hamilton, J.~E. Lenssen, G.~Rattan, and M.~Grohe.
 \newblock Weisfeiler and {L}eman go neural: Higher-order graph neural networks.
 \newblock In \emph{AAAI}, 2019.
+
+\bibitem[Paszke et~al.(2019)]{paszke2019pytorch}
+A.~Paszke, S.~Gross, F.~Massa, A.~Lerer, J.~Bradbury, G.~Chanan, T.~Killeen, Z.~Lin, N.~Gimelshein, L.~Antiga, A.~Desmaison, A.~K\"opf, E.~Yang, Z.~DeVito, M.~Raison, A.~Tejani, S.~Chilamkurthy, B.~Steiner, L.~Fang, J.~Bai, and S.~Chintala.
+\newblock {PyTorch}: An imperative style, high-performance deep learning library.
+\newblock In \emph{NeurIPS}, 2019.
 
 \bibitem[Sun et~al.(2025)]{sun2025gingraph}
 J.~Sun, S.~Pei, F.~Zhang, and N.~V. Chawla.
